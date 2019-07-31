@@ -1,9 +1,8 @@
 diff --git a/xen/arch/x86/mm/p2m.c b/xen/arch/x86/mm/p2m.c
-index fef97c82f6..3605614aaf 100644
+index b9bbb8f485..75f8359a99 100644
 --- a/xen/arch/x86/mm/p2m.c
 +++ b/xen/arch/x86/mm/p2m.c
-@@ -1341,7 +1341,7 @@ int set_identity_p2m_entry(struct domain *d, unsigned 
-long gfn_l,
+@@ -1331,7 +1331,7 @@ int set_identity_p2m_entry(struct domain *d, unsigned long gfn_l,
  
      if ( !paging_mode_translate(p2m->domain) )
      {
@@ -12,8 +11,7 @@ long gfn_l,
              return 0;
          return iommu_legacy_map(d, _dfn(gfn_l), _mfn(gfn_l), PAGE_ORDER_4K,
                                  IOMMUF_readable | IOMMUF_writable);
-@@ -1432,7 +1432,7 @@ int clear_identity_p2m_entry(struct domain *d, unsigned 
-long gfn_l)
+@@ -1422,7 +1422,7 @@ int clear_identity_p2m_entry(struct domain *d, unsigned long gfn_l)
  
      if ( !paging_mode_translate(d) )
      {
@@ -22,5 +20,29 @@ long gfn_l)
              return 0;
          return iommu_legacy_unmap(d, _dfn(gfn_l), PAGE_ORDER_4K);
      }
--- 
-2.20.1 (Apple Git-117)
+diff --git a/xen/drivers/passthrough/vtd/iommu.c b/xen/drivers/passthrough/vtd/iommu.c
+index 50a0e25224..8c3fcb50ae 100644
+--- a/xen/drivers/passthrough/vtd/iommu.c
++++ b/xen/drivers/passthrough/vtd/iommu.c
+@@ -2009,12 +2009,33 @@ static int rmrr_identity_mapping(struct domain *d, bool_t map,
+     if ( !map )
+         return -ENOENT;
+ 
+     while ( base_pfn < end_pfn )
+     {
+         int err = set_identity_p2m_entry(d, base_pfn, p2m_access_rw, flag);
++        mfn_t mfn;
++        unsigned int f;
+ 
+         if ( err )
+             return err;
++
++err = intel_iommu_lookup_page(d, _dfn(base_pfn), &mfn, &f);
++if ( err || base_pfn != mfn_x(mfn))
++{
++    BUG();
++}
++
+         base_pfn++;
+     }
+ 
