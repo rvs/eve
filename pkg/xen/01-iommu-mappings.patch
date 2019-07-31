@@ -1,19 +1,8 @@
 diff --git a/xen/arch/x86/mm/p2m.c b/xen/arch/x86/mm/p2m.c
-index fef97c82f6..88a2430c8c 100644
+index b9bbb8f485..75f8359a99 100644
 --- a/xen/arch/x86/mm/p2m.c
 +++ b/xen/arch/x86/mm/p2m.c
-@@ -836,7 +836,7 @@ guest_physmap_add_page(struct domain *d, gfn_t gfn, mfn_t 
-mfn,
-          */
-         for ( i = 0; i < (1UL << page_order); ++i, ++page )
-         {
--            if ( !need_iommu_pt_sync(d) )
-+            if ( !has_iommu_pt(d) )
-                 /* nothing */;
-             else if ( get_page_and_type(page, d, PGT_writable_page) )
-                 put_page_and_type(page);
-@@ -1341,7 +1341,7 @@ int set_identity_p2m_entry(struct domain *d, unsigned 
-long gfn_l,
+@@ -1331,7 +1331,7 @@ int set_identity_p2m_entry(struct domain *d, unsigned long gfn_l,
  
      if ( !paging_mode_translate(p2m->domain) )
      {
@@ -22,8 +11,7 @@ long gfn_l,
              return 0;
          return iommu_legacy_map(d, _dfn(gfn_l), _mfn(gfn_l), PAGE_ORDER_4K,
                                  IOMMUF_readable | IOMMUF_writable);
-@@ -1432,7 +1432,7 @@ int clear_identity_p2m_entry(struct domain *d, unsigned 
-long gfn_l)
+@@ -1422,7 +1422,7 @@ int clear_identity_p2m_entry(struct domain *d, unsigned long gfn_l)
  
      if ( !paging_mode_translate(d) )
      {
@@ -32,5 +20,72 @@ long gfn_l)
              return 0;
          return iommu_legacy_unmap(d, _dfn(gfn_l), PAGE_ORDER_4K);
      }
--- 
-2.20.1 (Apple Git-117)
+diff --git a/xen/drivers/passthrough/iommu.c b/xen/drivers/passthrough/iommu.c
+index 117b869b0c..214c5d515f 100644
+--- a/xen/drivers/passthrough/iommu.c
++++ b/xen/drivers/passthrough/iommu.c
+@@ -291,8 +291,18 @@ int iommu_map(struct domain *d, dfn_t dfn, mfn_t mfn,
+     unsigned long i;
+     int rc = 0;
+ 
++if (dfn_x(dfn) >= 0x8d800 && dfn_x(dfn) < 0x90000 )
++{
++    printk("<RMRR> iommu_map %#lx\n", dfn_x(dfn));
++    process_pending_softirqs();
++}
++
+     if ( !iommu_enabled || !hd->platform_ops )
++{
++    printk("iommu_enabled: %d platform_ops %p\n",
++           iommu_enabled, hd->platform_ops);
+         return 0;
++}
+ 
+     ASSERT(IS_ALIGNED(dfn_x(dfn), (1ul << page_order)));
+     ASSERT(IS_ALIGNED(mfn_x(mfn), (1ul << page_order)));
+diff --git a/xen/drivers/passthrough/vtd/iommu.c b/xen/drivers/passthrough/vtd/iommu.c
+index 50a0e25224..8c3fcb50ae 100644
+--- a/xen/drivers/passthrough/vtd/iommu.c
++++ b/xen/drivers/passthrough/vtd/iommu.c
+@@ -2009,12 +2009,33 @@ static int rmrr_identity_mapping(struct domain *d, bool_t map,
+     if ( !map )
+         return -ENOENT;
+ 
++printk("<RMRR> mapping %#lx - %#lx\n", base_pfn, end_pfn);
+     while ( base_pfn < end_pfn )
+     {
+         int err = set_identity_p2m_entry(d, base_pfn, p2m_access_rw, flag);
++        mfn_t mfn;
++        unsigned int f;
+ 
+         if ( err )
+             return err;
++
++err = intel_iommu_lookup_page(d, _dfn(base_pfn), &mfn, &f);
++if ( err )
++{
++    printk("intel_iommu_lookup_page err: %d\n", err);
++    BUG();
++}
++if ( base_pfn != mfn_x(mfn) )
++{
++    printk("base_pfn: %#lx mfn: %#lx\n", base_pfn, mfn_x(mfn));
++    BUG();
++}
++if ( f != (IOMMUF_readable | IOMMUF_writable) )
++{
++    printk("flags: %#x\n", f);
++    BUG();
++}
++
+         base_pfn++;
+     }
+ 
+@@ -2263,6 +2284,7 @@ static void __hwdom_init setup_hwdom_rmrr(struct domain *d)
+     u16 bdf;
+     int ret, i;
+ 
++printk("<RMRR> setting up regions\n");
+     pcidevs_lock();
+     for_each_rmrr_device ( rmrr, bdf, i )
+     {
