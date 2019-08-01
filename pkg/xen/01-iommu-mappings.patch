@@ -1,48 +1,97 @@
 diff --git a/xen/arch/x86/mm/p2m.c b/xen/arch/x86/mm/p2m.c
-index b9bbb8f485..75f8359a99 100644
+index fef97c82f6..d36a58b1a6 100644
 --- a/xen/arch/x86/mm/p2m.c
 +++ b/xen/arch/x86/mm/p2m.c
-@@ -1331,7 +1331,7 @@ int set_identity_p2m_entry(struct domain *d, unsigned long gfn_l,
+@@ -1341,10 +1341,8 @@ int set_identity_p2m_entry(struct domain *d, unsigned long gfn_l,
  
      if ( !paging_mode_translate(p2m->domain) )
      {
 -        if ( !need_iommu_pt_sync(d) )
-+        if ( !has_iommu_pt(d) )
-             return 0;
-         return iommu_legacy_map(d, _dfn(gfn_l), _mfn(gfn_l), PAGE_ORDER_4K,
-                                 IOMMUF_readable | IOMMUF_writable);
-@@ -1422,7 +1422,7 @@ int clear_identity_p2m_entry(struct domain *d, unsigned long gfn_l)
+-            return 0;
+-        return iommu_legacy_map(d, _dfn(gfn_l), _mfn(gfn_l), PAGE_ORDER_4K,
+-                                IOMMUF_readable | IOMMUF_writable);
++        ASSERT_UNREACHABLE();
++        return -ENXIO;
+     }
+ 
+     gfn_lock(p2m, gfn, 0);
+@@ -1432,9 +1430,8 @@ int clear_identity_p2m_entry(struct domain *d, unsigned long gfn_l)
  
      if ( !paging_mode_translate(d) )
      {
 -        if ( !need_iommu_pt_sync(d) )
-+        if ( !has_iommu_pt(d) )
-             return 0;
-         return iommu_legacy_unmap(d, _dfn(gfn_l), PAGE_ORDER_4K);
+-            return 0;
+-        return iommu_legacy_unmap(d, _dfn(gfn_l), PAGE_ORDER_4K);
++        ASSERT_UNREACHABLE();
++        return -ENXIO;
      }
+ 
+     gfn_lock(p2m, gfn, 0);
 diff --git a/xen/drivers/passthrough/vtd/iommu.c b/xen/drivers/passthrough/vtd/iommu.c
-index 50a0e25224..8c3fcb50ae 100644
+index 5d72270c5b..62df5ca5aa 100644
 --- a/xen/drivers/passthrough/vtd/iommu.c
 +++ b/xen/drivers/passthrough/vtd/iommu.c
-@@ -2009,12 +2009,33 @@ static int rmrr_identity_mapping(struct domain *d, bool_t map,
-     if ( !map )
-         return -ENOENT;
+@@ -1969,6 +1969,7 @@ static int rmrr_identity_mapping(struct domain *d, bool_t map,
+     unsigned long end_pfn = PAGE_ALIGN_4K(rmrr->end_address) >> PAGE_SHIFT_4K;
+     struct mapped_rmrr *mrmrr;
+     struct domain_iommu *hd = dom_iommu(d);
++    unsigned int flush_flags = 0;
+ 
+     ASSERT(pcidevs_locked());
+     ASSERT(rmrr->base_address < rmrr->end_address);
+@@ -1982,7 +1983,7 @@ static int rmrr_identity_mapping(struct domain *d, bool_t map,
+         if ( mrmrr->base == rmrr->base_address &&
+              mrmrr->end == rmrr->end_address )
+         {
+-            int ret = 0;
++            int ret = 0, err;
+ 
+             if ( map )
+             {
+@@ -1995,13 +1996,20 @@ static int rmrr_identity_mapping(struct domain *d, bool_t map,
+ 
+             while ( base_pfn < end_pfn )
+             {
+-                if ( clear_identity_p2m_entry(d, base_pfn) )
+-                    ret = -ENXIO;
++                if ( paging_mode_translate(d) )
++                    ret = clear_identity_p2m_entry(d, base_pfn);
++                else
++                    ret = iommu_unmap(d, _dfn(base_pfn), PAGE_ORDER_4K,
++                                      &flush_flags);
+                 base_pfn++;
+             }
+ 
+             list_del(&mrmrr->list);
+             xfree(mrmrr);
++            /* Keep the previous error code if there's one. */
++            err = iommu_iotlb_flush_all(d, flush_flags);
++            if ( !ret )
++                ret = err;
+             return ret;
+         }
+     }
+@@ -2011,8 +2019,13 @@ static int rmrr_identity_mapping(struct domain *d, bool_t map,
  
      while ( base_pfn < end_pfn )
      {
-         int err = set_identity_p2m_entry(d, base_pfn, p2m_access_rw, flag);
-+        mfn_t mfn;
-+        unsigned int f;
+-        int err = set_identity_p2m_entry(d, base_pfn, p2m_access_rw, flag);
++        int err;
  
++        if ( paging_mode_translate(d) )
++            err = set_identity_p2m_entry(d, base_pfn, p2m_access_rw, flag);
++        else
++            err = iommu_map(d, _dfn(base_pfn), _mfn(base_pfn), PAGE_ORDER_4K,
++                            IOMMUF_readable | IOMMUF_writable, &flush_flags);
          if ( err )
              return err;
-+
-+err = intel_iommu_lookup_page(d, _dfn(base_pfn), &mfn, &f);
-+if ( err || base_pfn != mfn_x(mfn))
-+{
-+    BUG();
-+}
-+
          base_pfn++;
-     }
+@@ -2026,7 +2039,7 @@ static int rmrr_identity_mapping(struct domain *d, bool_t map,
+     mrmrr->count = 1;
+     list_add_tail(&mrmrr->list, &hd->arch.mapped_rmrrs);
  
+-    return 0;
++    return iommu_iotlb_flush_all(d, flush_flags);
+ }
+ 
+ static int intel_iommu_add_device(u8 devfn, struct pci_dev *pdev)
