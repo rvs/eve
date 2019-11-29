@@ -1,7 +1,9 @@
 FROM alpine:3.10 as initrd
 
-RUN apk add --no-cache mkinitfs
-RUN mkinitfs -n -o /initrd.gz
+COPY nlplug-findfs.c initramfs-init /tmp/
+RUN apk add --no-cache mkinitfs gcc musl-dev linux-headers kmod-dev util-linux-dev cryptsetup1-dev
+RUN cc -Wall -Werror -g -D_GNU_SOURCE -DDEBUG -I/usr/include/blkid -I/usr/include/uuid /tmp/nlplug-findfs.c -lblkid  -lkmod  -L/lib -lcryptsetup -o /sbin/nlplug-findfs
+RUN mkinitfs -n -i /tmp/initramfs-init -o /initrd.gz
 
 FROM alpine:3.10 as build
 
