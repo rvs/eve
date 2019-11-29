@@ -24,9 +24,13 @@ RUN find . -print -depth | cpio -o -H newc | gzip > /installer.gz
 
 FROM alpine:3.10
 
-COPY --from=initrd /initrd.gz /
 COPY --from=build /installer.gz /
+COPY --from=initrd /initrd.gz /
 RUN gzip -d < /installer.gz | cpio -id 2>/dev/null
-RUN cat initrd.gz installer.gz > initrd.img
+RUN mkdir /tmp/r ; cd /tmp/r ;\
+    for i in initrd.gz installer.gz ; do gzip -d < /$i | cpio -id ; done ;\
+    find . | sort | cpio --quiet -o -H newc | gzip > /initrd.img
+
+COPY grub.cfg /EFI/BOOT/
 
 ENTRYPOINT [ "/make-raw" ]

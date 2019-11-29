@@ -78,10 +78,11 @@ ROOTFS_IMG=$(DIST)/rootfs.img
 TARGET_IMG=$(DIST)/target.img
 INSTALLER_IMG=$(DIST)/installer
 CONFIG_IMG=$(DIST)/config.img
+INITRD_IMG=$(DIST)/initrd.img
 
-DEVICETREE_DTB=$(DIST)/bios/eve.dtb
-BIOS_IMG=$(DIST)/bios/OVMF.fd
-EFI_PART=$(DIST)/bios/EFI
+DEVICETREE_DTB=$(DIST)/eve.dtb
+BIOS_IMG=$(DIST)/OVMF.fd
+EFI_PART=$(DIST)/EFI
 CONF_PART=$(CURDIR)/../adam/run/config
 
 QEMU_OPTS_arm64= -machine virt,gic_version=3 -machine virtualization=true -cpu cortex-a57 -machine type=virt
@@ -113,7 +114,7 @@ ifneq ($(ALL_PROXY),)
 DOCKER_ALL_PROXY:=--build-arg all_proxy=$(ALL_PROXY)
 endif
 
-DOCKER_UNPACK= _() { C=`docker create $$1 fake` ; docker export $$C | tar -xf - $$2 ; docker rm $$C ; } ; _
+DOCKER_UNPACK= _() { C=`docker create $$1 fake` ; shift ; docker export $$C | tar -xf - "$$@" ; docker rm $$C ; } ; _
 DOCKER_GO = _() { mkdir -p $(CURDIR)/.go/src/$${3:-dummy} ; mkdir -p $(CURDIR)/.go/bin ; \
     docker run $$DOCKER_GO_ARGS -i --rm -u $(USER) -w /go/src/$${3:-dummy} \
     -v $(CURDIR)/.go:/go -v $$2:/go/src/$${3:-dummy} -v $${4:-$(CURDIR)/.go/bin}:/go/bin -v $(CURDIR)/:/eve -v $${HOME}:/home/$(USER) \
@@ -157,14 +158,16 @@ yetus:
 build-tools: $(LINUXKIT)
 	@echo Done building $<
 
-$(EFI_PART): $(LINUXKIT) | $(DIST)/bios
-	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/grub)-$(DOCKER_ARCH_TAG) EFI
-	(echo "set root=(hd0)" ; echo "chainloader /EFI/BOOT/BOOTX64.EFI" ; echo boot) > $@/BOOT/grub.cfg
+$(BIOS_IMG): $(LINUXKIT) | $(DIST)
+	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/uefi)-$(DOCKER_ARCH_TAG) $(notdir $@)
 
-$(BIOS_IMG): $(LINUXKIT) | $(DIST)/bios
-	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/uefi)-$(DOCKER_ARCH_TAG) OVMF.fd
+$(EFI_PART): $(LINUXKIT) | $(DIST)
+	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/grub)-$(DOCKER_ARCH_TAG) $(notdir $@)
 
-$(DEVICETREE_DTB): $(BIOS_IMG) | $(DIST)/bios
+$(INITRD_IMG): $(LINUXKIT) | $(DIST)
+	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/mkinitrd)-$(DOCKER_ARCH_TAG) $(notdir $@ $(EFI_PART)) 
+
+$(DEVICETREE_DTB): | $(DIST)
 	$(QEMU_SYSTEM) $(QEMU_OPTS) -machine dumpdtb=$@
 
 # run-installer
@@ -191,10 +194,10 @@ run-rootfs: $(BIOS_IMG) $(EFI_PART)
 	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive file=$(ROOTFS_IMG),format=raw -drive file=fat:rw:$(EFI_PART)/..,label=CONFIG,format=vvfat
 
 run-grub: $(BIOS_IMG) $(EFI_PART)
-	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive file=fat:rw:$(EFI_PART)/..,format=raw
+	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive format=vvfat,file=fat:rw:$(EFI_PART)/..
 
 # ensure the dist directory exists
-$(DIST) $(DIST)/bios:
+$(DIST):
 	mkdir -p $@
 
 # convenience targets - so you can do `make config` instead of `make dist/config.img`, and `make installer` instead of `make dist/amd64/installer.img
@@ -228,15 +231,11 @@ $(ROOTFS_IMG)_installer.img: images/installer.yml $(ROOTFS_IMG) $(CONFIG_IMG) | 
 	@[ $$(wc -c < "$@") -gt $$(( 300 * 1024 * 1024 )) ] && \
           echo "ERROR: size of $@ is greater than 300MB (bigger than allocated partition)" && exit 1 || :
 
-$(INSTALLER_IMG).raw: $(ROOTFS_IMG) $(CONFIG_IMG) | $(DIST)
-	tar -C $(DIST) -c $(notdir $^) | ./tools/makeflash.sh -C 350 $@ "installer"
+$(INSTALLER_IMG).raw: $(EFI_PART) $(ROOTFS_IMG) $(INITRD_IMG) $(CONFIG_IMG) | $(DIST)
+	tar -C $(DIST) -c $(notdir $^) | ./tools/makeflash.sh -C 350 $@ "conf_win installer"
 
-#$(INSTALLER_IMG).raw: $(ROOTFS_IMG)_installer.img $(CONFIG_IMG) | $(DIST)
-#	tar -C $(DIST) -c $(notdir $^) | ./tools/makeflash.sh -C 350 $@ "efi imga conf_win inventory_win"
-#	rm $(ROOTFS_IMG)_installer.img
-
-$(INSTALLER_IMG).iso: images/installer.yml $(ROOTFS_IMG) $(CONFIG_IMG) | $(DIST)
-	./tools/makeiso.sh $< $@
+$(INSTALLER_IMG).iso: $(EFI_PART) $(ROOTFS_IMG) $(INITRD_IMG) $(CONFIG_IMG) | $(DIST)
+	tar -C $(DIST) -c $(notdir $^) | ./tools/makeiso.sh $@
 
 # top-level linuxkit packages targets, note the one enforcing ordering between packages
 pkgs: RESCAN_DEPS=
