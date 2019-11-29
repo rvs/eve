@@ -79,6 +79,7 @@ TARGET_IMG=$(DIST)/target.img
 INSTALLER_IMG=$(DIST)/installer
 CONFIG_IMG=$(DIST)/config.img
 
+DEVICETREE_DTB=$(DIST)/bios/eve.dtb
 BIOS_IMG=$(DIST)/bios/OVMF.fd
 EFI_PART=$(DIST)/bios/EFI
 CONF_PART=$(CURDIR)/../adam/run/config
@@ -163,13 +164,14 @@ $(EFI_PART): $(LINUXKIT) | $(DIST)/bios
 $(BIOS_IMG): $(LINUXKIT) | $(DIST)/bios
 	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/uefi)-$(DOCKER_ARCH_TAG) OVMF.fd
 
+$(DEVICETREE_DTB): $(BIOS_IMG) | $(DIST)/bios
+	$(QEMU_SYSTEM) $(QEMU_OPTS) -machine dumpdtb=$@
+
 # run-installer
 #
 # This creates an image equivalent to live.img (called target.img)
 # through the installer. It's the long road to live.img. Good for
 # testing.
-#
-# -machine dumpdtb=virt.dtb
 #
 run-installer-iso: $(BIOS_IMG)
 	qemu-img create -f ${IMG_FORMAT} $(TARGET_IMG) ${MEDIA_SIZE}M
@@ -226,9 +228,12 @@ $(ROOTFS_IMG)_installer.img: images/installer.yml $(ROOTFS_IMG) $(CONFIG_IMG) | 
 	@[ $$(wc -c < "$@") -gt $$(( 300 * 1024 * 1024 )) ] && \
           echo "ERROR: size of $@ is greater than 300MB (bigger than allocated partition)" && exit 1 || :
 
-$(INSTALLER_IMG).raw: $(ROOTFS_IMG)_installer.img $(CONFIG_IMG) | $(DIST)
-	tar -C $(DIST) -c $(notdir $^) | ./tools/makeflash.sh -C 350 $@ "efi imga conf_win inventory_win"
-	rm $(ROOTFS_IMG)_installer.img
+$(INSTALLER_IMG).raw: $(ROOTFS_IMG) $(CONFIG_IMG) | $(DIST)
+	tar -C $(DIST) -c $(notdir $^) | ./tools/makeflash.sh -C 350 $@ "installer"
+
+#$(INSTALLER_IMG).raw: $(ROOTFS_IMG)_installer.img $(CONFIG_IMG) | $(DIST)
+#	tar -C $(DIST) -c $(notdir $^) | ./tools/makeflash.sh -C 350 $@ "efi imga conf_win inventory_win"
+#	rm $(ROOTFS_IMG)_installer.img
 
 $(INSTALLER_IMG).iso: images/installer.yml $(ROOTFS_IMG) $(CONFIG_IMG) | $(DIST)
 	./tools/makeiso.sh $< $@
@@ -366,3 +371,4 @@ help:
 	@echo
 	@echo "make run is currently an alias for make run-live"
 	@echo
+	@echo ${DEVICETREE_DTB}
