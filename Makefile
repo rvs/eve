@@ -72,17 +72,17 @@ ifeq ($(ZARCH),amd64)
 	ROOTFS_YML=$(ROOTFS_YML_$(HV))
 endif
 
+INSTALLER=$(DIST)/installer
+ROOTFS_IMG=$(INSTALLER)/rootfs.img
+CONFIG_IMG=$(INSTALLER)/config.img
+INITRD_IMG=$(INSTALLER)/initrd.img
+EFI_PART=$(INSTALLER)/EFI
 
-LIVE_IMG=$(DIST)/live
-ROOTFS_IMG=$(DIST)/rootfs.img
 TARGET_IMG=$(DIST)/target.img
-INSTALLER_IMG=$(DIST)/installer
-CONFIG_IMG=$(DIST)/config.img
-INITRD_IMG=$(DIST)/initrd.img
+LIVE_IMG=$(DIST)/live
 
 DEVICETREE_DTB=$(DIST)/eve.dtb
 BIOS_IMG=$(DIST)/OVMF.fd
-EFI_PART=$(DIST)/EFI
 CONF_PART=$(CURDIR)/../adam/run/config
 
 QEMU_OPTS_arm64= -machine virt,gic_version=3 -machine virtualization=true -cpu cortex-a57 -machine type=virt
@@ -148,8 +148,8 @@ test: $(GOBUILDER) | $(DIST)
 	@$(DOCKER_GO) "gotestsum --junitfile $(DOCKER_DIST)/results.xml" $(GOTREE) $(GOMODULE)
 
 clean:
-	rm -rf $(DIST) pkg/pillar/Dockerfile pkg/qrexec-lib/Dockerfile pkg/qrexec-dom0/Dockerfile \
-		images/installer.yml $(ROOTFS_YML_xen) $(ROOTFS_YML_acrn)
+	rm -rf $(DIST) $(ROOTFS_YML_xen) $(ROOTFS_YML_acrn) \
+               pkg/pillar/Dockerfile pkg/qrexec-lib/Dockerfile pkg/qrexec-dom0/Dockerfile
 
 yetus:
 	@echo Running yetus
@@ -161,14 +161,14 @@ build-tools: $(LINUXKIT)
 $(BIOS_IMG): $(LINUXKIT) | $(DIST)
 	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/uefi)-$(DOCKER_ARCH_TAG) $(notdir $@)
 
-$(EFI_PART): $(LINUXKIT) | $(DIST)
-	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/grub)-$(DOCKER_ARCH_TAG) $(notdir $@)
-
-$(INITRD_IMG): $(LINUXKIT) | $(DIST)
-	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/mkinitrd)-$(DOCKER_ARCH_TAG) $(notdir $@ $(EFI_PART)) 
-
 $(DEVICETREE_DTB): | $(DIST)
 	$(QEMU_SYSTEM) $(QEMU_OPTS) -machine dumpdtb=$@
+
+$(EFI_PART): $(LINUXKIT) | $(INSTALLER)
+	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/grub)-$(DOCKER_ARCH_TAG) $(notdir $@)
+
+$(INITRD_IMG): $(LINUXKIT) | $(INSTALLER)
+	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/mkinitrd)-$(DOCKER_ARCH_TAG) $(notdir $@ $(EFI_PART)) 
 
 # run-installer
 #
@@ -178,11 +178,11 @@ $(DEVICETREE_DTB): | $(DIST)
 #
 run-installer-iso: $(BIOS_IMG)
 	qemu-img create -f ${IMG_FORMAT} $(TARGET_IMG) ${MEDIA_SIZE}M
-	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive file=$(TARGET_IMG),format=$(IMG_FORMAT) -cdrom $(INSTALLER_IMG).iso -boot d
+	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive file=$(TARGET_IMG),format=$(IMG_FORMAT) -cdrom $(INSTALLER).iso -boot d
 
 run-installer-raw: $(BIOS_IMG)
 	qemu-img create -f ${IMG_FORMAT} $(TARGET_IMG) ${MEDIA_SIZE}M
-	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive file=$(TARGET_IMG),format=$(IMG_FORMAT) -drive file=$(INSTALLER_IMG).raw,format=raw
+	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive file=$(TARGET_IMG),format=$(IMG_FORMAT) -drive file=$(INSTALLER).raw,format=raw
 
 run-live run: $(BIOS_IMG)
 	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive file=$(LIVE_IMG).img,format=$(IMG_FORMAT)
@@ -194,23 +194,23 @@ run-rootfs: $(BIOS_IMG) $(EFI_PART)
 	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive file=$(ROOTFS_IMG),format=raw -drive file=fat:rw:$(EFI_PART)/..,label=CONFIG,format=vvfat
 
 run-grub: $(BIOS_IMG) $(EFI_PART)
-	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive format=vvfat,file=fat:rw:$(EFI_PART)/..
+	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive format=vvfat,label=EVE,file=fat:rw:$(EFI_PART)/..
 
 # ensure the dist directory exists
-$(DIST):
+$(DIST) $(INSTALLER):
 	mkdir -p $@
 
 # convenience targets - so you can do `make config` instead of `make dist/config.img`, and `make installer` instead of `make dist/amd64/installer.img
 config: $(CONFIG_IMG)
 rootfs: $(ROOTFS_IMG)
 live: $(LIVE_IMG).img
-installer: $(INSTALLER_IMG).raw
-installer-iso: $(INSTALLER_IMG).iso
+installer: $(INSTALLER).raw
+installer-iso: $(INSTALLER).iso
 
-$(CONFIG_IMG): conf/server conf/onboard.cert.pem conf/authorized_keys conf/ | $(DIST)
+$(CONFIG_IMG): conf/server conf/onboard.cert.pem conf/authorized_keys conf/ | $(INSTALLER)
 	./tools/makeconfig.sh $(CONF_DIR) $@
 
-$(ROOTFS_IMG): $(ROOTFS_YML) | $(DIST)
+$(ROOTFS_IMG): $(ROOTFS_YML) | $(INSTALLER)
 	./tools/makerootfs.sh $< $(ROOTFS_FORMAT) $@
 	@[ $$(wc -c < "$@") -gt $$(( 250 * 1024 * 1024 )) ] && \
           echo "ERROR: size of $@ is greater than 250MB (bigger than allocated partition)" && exit 1 || :
@@ -226,16 +226,11 @@ $(LIVE_IMG).qcow2: $(LIVE_IMG).raw | $(DIST)
 $(LIVE_IMG).raw: $(ROOTFS_IMG) $(CONFIG_IMG) | $(DIST)
 	tar -C $(DIST) -c $(notdir $^) | ./tools/makeflash.sh -C ${MEDIA_SIZE} $@
 
-$(ROOTFS_IMG)_installer.img: images/installer.yml $(ROOTFS_IMG) $(CONFIG_IMG) | $(DIST)
-	./tools/makerootfs.sh $< $(ROOTFS_FORMAT) $@
-	@[ $$(wc -c < "$@") -gt $$(( 300 * 1024 * 1024 )) ] && \
-          echo "ERROR: size of $@ is greater than 300MB (bigger than allocated partition)" && exit 1 || :
+$(INSTALLER).raw: $(EFI_PART) $(ROOTFS_IMG) $(INITRD_IMG) $(CONFIG_IMG) | $(INSTALLER)
+	./tools/makeflash.sh -C 350 $| $@ "conf_win installer"
 
-$(INSTALLER_IMG).raw: $(EFI_PART) $(ROOTFS_IMG) $(INITRD_IMG) $(CONFIG_IMG) | $(DIST)
-	tar -C $(DIST) -c $(notdir $^) | ./tools/makeflash.sh -C 350 $@ "conf_win installer"
-
-$(INSTALLER_IMG).iso: $(EFI_PART) $(ROOTFS_IMG) $(INITRD_IMG) $(CONFIG_IMG) | $(DIST)
-	tar -C $(DIST) -c $(notdir $^) | ./tools/makeiso.sh $@
+$(INSTALLER).iso: $(EFI_PART) $(ROOTFS_IMG) $(INITRD_IMG) $(CONFIG_IMG) | $(INSTALLER)
+	./tools/makeiso.sh $| $@
 
 # top-level linuxkit packages targets, note the one enforcing ordering between packages
 pkgs: RESCAN_DEPS=
@@ -252,8 +247,8 @@ pkg/qrexec-lib: pkg/xen-tools eve-qrexec-lib
 pkg/%: eve-% FORCE
 	@true
 
-eve: Makefile $(BIOS_IMG) $(CONFIG_IMG) $(INSTALLER_IMG).iso $(INSTALLER_IMG).raw $(ROOTFS_IMG) $(LIVE_IMG).img $(ROOTFS_YML) images/installer.yml
-	cp pkg/eve/* Makefile $(ROOTFS_YML) images/installer.yml $(DIST)
+eve: Makefile $(BIOS_IMG) $(CONFIG_IMG) $(INSTALLER).iso $(INSTALLER).raw $(ROOTFS_IMG) $(LIVE_IMG).img $(ROOTFS_YML)
+	cp pkg/eve/* Makefile $(ROOTFS_YML) $(DIST)
 	$(LINUXKIT) pkg $(LINUXKIT_PKG_TARGET) --hash-path $(CURDIR) $(LINUXKIT_OPTS) $(DIST)
 
 proto-vendor:

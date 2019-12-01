@@ -17,7 +17,7 @@ RUN apk add --no-cache \
   coreutils
 
 WORKDIR /
-COPY make-raw install grub.cfg initrd.img /
+COPY make-raw install /
 COPY /efi-files /efifs
 
 RUN echo "mtools_skip_check=1" >> /etc/mtools.conf

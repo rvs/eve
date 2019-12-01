@@ -9,28 +9,28 @@
 set -e
 [ -n "$DEBUG" ] && set -x
 
-mkdir -p /tmp/efi
-cd /tmp/efi
+copy() {
+   dd if="$1" of="$2" bs=1M 2>/dev/null
+}
 
-# extract. BSD tar auto recognises compression, unlike GNU tar
-# only if stdin is a tty, if so need files volume mounted...
+cd /mnt
 [ -t 0 ] || bsdtar xzf -
 
 # create a ISO with a EFI boot partition
 # Stuff it into a FAT filesystem, making it as small as possible.  511KiB
 # headroom seems to be enough; (x+31)/32*32 rounds up to multiple of 32.
-mkfs.vfat -v -C boot.img \
+mkfs.vfat -v -C /tmp/boot.img \
         $(( ($(stat -c %s EFI/BOOT/BOOT*EFI) / 1024 + 511) \
 		/ 32 * 32 )) > /dev/null
-echo "mtools_skip_check=1" >> /etc/mtools.conf && \
-mmd -i boot.img ::/EFI
-mmd -i boot.img ::/EFI/BOOT
-mcopy -i boot.img EFI/BOOT/* ::/EFI/BOOT/
 
+mmd -i /tmp/boot.img ::/EFI
+mmd -i /tmp/boot.img ::/EFI/BOOT
+mcopy -i /tmp/boot.img EFI/BOOT/* ::/EFI/BOOT/
+
+copy /tmp/boot.img boot.img
 xorriso -as mkisofs \
-	-R -e boot.img -hide boot.img -hide boot.catalog -no-emul-boot -o linuxkit-efi.iso .
-
-cat linuxkit-efi.iso
+	-R -e boot.img -hide boot.img -hide boot.catalog -no-emul-boot -o /tmp/disk.iso .
+copy /tmp/disk.iso /output.iso
 
 # How to build a VHDX. Commented out because we are currently not using it
 # Don't delete: It took too long to figure out how to do this...
