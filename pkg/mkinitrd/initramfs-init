@@ -334,7 +334,7 @@ myopts="alpine_dev autodetect autoraid chart cryptroot cryptdm cryptheader crypt
 	cryptdiscards cryptkey debug_init dma init init_args keep_apk_new modules ovl_dev
 	pkgs quiet root_size root usbdelay ip alpine_repo apkovl alpine_start splash
 	blacklist overlaytmpfs rootfstype rootflags nbd resume s390x_net dasd ssh_key
-	BOOTIF"
+	BOOTIF setup_loops eve_installer"
 
 for opt; do
 	case "$opt" in
@@ -469,6 +469,29 @@ fi
 
 # zpool reports /dev/zfs missing if it can't read /etc/mtab
 ln -s /proc/mounts /etc/mtab
+
+# check if setup_loops=... was set
+if [ -n "$KOPT_setup_loops" ]; then
+	# locate boot media and mount it
+	ebegin "Mounting boot media"
+	nlplug-findfs $cryptopts -p /sbin/mdev ${KOPT_debug_init:+-d} \
+		${KOPT_usbdelay:+-t $(( $KOPT_usbdelay * 1000 ))} \
+		-n -r /tmp/rootfs
+	eend $?
+
+        # now add loops
+	ebegin "Setting up loop blockdevices"
+	for l in $(cat /tmp/rootfs); do
+		losetup -r -f "$l"
+	done
+	eend $?
+fi
+
+# check if eve_installer=... was set
+if [ -n "$KOPT_eve_installer" ]; then
+	echo "Lauhcning EVE installer."
+	sh
+fi
 
 # check if root=... was set
 if [ -n "$KOPT_root" ]; then
