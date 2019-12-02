@@ -169,7 +169,7 @@ $(EFI_PART): $(LINUXKIT) | $(INSTALLER)
 	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/grub)-$(DOCKER_ARCH_TAG) $(notdir $@)
 
 $(INITRD_IMG): $(LINUXKIT) | $(INSTALLER)
-	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/mkinitrd)-$(DOCKER_ARCH_TAG) $(notdir $@ $(EFI_PART)) 
+	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/mkimage-raw-efi)-$(DOCKER_ARCH_TAG) $(notdir $@ $(EFI_PART))
 
 # run-installer
 #

@@ -489,8 +489,10 @@ fi
 
 # check if eve_installer=... was set
 if [ -n "$KOPT_eve_installer" ]; then
-	echo "Lauhcning EVE installer."
+	ebegin "Lauhcning EVE installer."
+	/install
 	sh
+	eend $?
 fi
 
 # check if root=... was set
