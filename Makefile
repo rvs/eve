@@ -72,17 +72,18 @@ ifeq ($(ZARCH),amd64)
 	ROOTFS_YML=$(ROOTFS_YML_$(HV))
 endif
 
+
+BIOS_IMG=$(DIST)/OVMF.fd
+LIVE_IMG=$(DIST)/live
+TARGET_IMG=$(DIST)/target.img
 INSTALLER=$(DIST)/installer
+
 ROOTFS_IMG=$(INSTALLER)/rootfs.img
 CONFIG_IMG=$(INSTALLER)/config.img
 INITRD_IMG=$(INSTALLER)/initrd.img
+DEVICETREE_DTB=$(INSTALLER)/eve.dtb
 EFI_PART=$(INSTALLER)/EFI
 
-TARGET_IMG=$(DIST)/target.img
-LIVE_IMG=$(DIST)/live
-
-DEVICETREE_DTB=$(DIST)/eve.dtb
-BIOS_IMG=$(DIST)/OVMF.fd
 CONF_PART=$(CURDIR)/../adam/run/config
 
 QEMU_OPTS_arm64= -machine virt,gic_version=3 -machine virtualization=true -cpu cortex-a57 -machine type=virt
@@ -161,7 +162,7 @@ build-tools: $(LINUXKIT)
 $(BIOS_IMG): $(LINUXKIT) | $(DIST)
 	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/uefi)-$(DOCKER_ARCH_TAG) $(notdir $@)
 
-$(DEVICETREE_DTB): | $(DIST)
+$(DEVICETREE_DTB): $(BIOS_IMG) | $(INSTALLER)
 	$(QEMU_SYSTEM) $(QEMU_OPTS) -machine dumpdtb=$@
 
 $(EFI_PART): $(LINUXKIT) | $(INSTALLER)
@@ -365,4 +366,3 @@ help:
 	@echo
 	@echo "make run is currently an alias for make run-live"
 	@echo
-	@echo ${DEVICETREE_DTB}
