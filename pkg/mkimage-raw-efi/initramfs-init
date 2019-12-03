@@ -489,6 +489,7 @@ fi
 
 # check if eve_installer=... was set
 if [ -n "$KOPT_eve_installer" ]; then
+	ln -s /media/$(cd /media ; echo */rootfs.img | sed -e 's#/.*$##') /mnt	
 	ebegin "Lauhcning EVE installer."
 	/install
 	sh

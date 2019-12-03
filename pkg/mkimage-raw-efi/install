@@ -28,7 +28,14 @@ function trunc {
 function root_dev {
    local MAJOR
    local MINOR
-   local DEV=$(readlink -f /dev/root 2>/dev/null)
+   local DEV
+
+   if [ -e /dev/root]; then
+      DEV=$(readlink -f /dev/root 2>/dev/null)
+   else
+      DEV=/dev/$(cd /media ; echo */rootfs.img | sed -e 's#/.*$##') 
+   fi
+
    if [ -z "$DEV" ] ; then
       MAJOR=$(( $(stat -c '%d' /hostfs ) / 256))
       MINOR=$(( $(stat -c '%d' /hostfs ) - $MAJOR * 256 ))
