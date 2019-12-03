@@ -9,4 +9,5 @@ if [ ! -d "$SOURCE" -o $# -ne 2 ]; then
    exit 1
 fi
 
+touch "$ISO"
 docker run -t -v "$SOURCE:/bits" -v "$ISO:/output.iso" -i ${MKIMAGE_TAG}
