@@ -92,6 +92,14 @@ grep -q eve_install_skip_persist /proc/cmdline || dd if=/dev/zero of=/parts/pers
 # we may be asked to pause before install procedure
 grep -q eve_pause_before_install /proc/cmdline && sleep 100000
 
+# FIXME: we need to run one thing from the install image to seed
+# the random generator for sgdisk invocatin via make-raw. This
+# needs to go away soon as part of the overall restructuring of
+# /install vs. make-raw vs. /init
+mkdir -p /mnt || :
+mount /parts/rootfs.img /mnt &&
+   /mnt/containers/onboot/rngd/lower/sbin/rngd -1
+
 # do the install
 /bin/sh -xc "/make-raw /dev/$INSTALL_DEV" || bail "Installation failed. Entering shell..."
 
@@ -101,14 +109,13 @@ SERIAL_NUM=$(uuidgen)
 INVENTORY_PART=$(find_part INVENTORY "$(root_dev)")
 DEST_CONF_PART=$(find_part CONFIG "$INSTALL_DEV")
 
-mkdir -p /mnt/d /run/conf /run/inventory && \
+mkdir -p /run/conf /run/inventory && \
   mount -t vfat "/dev/$INVENTORY_PART" /run/inventory && \
   mount -t vfat "/dev/$DEST_CONF_PART" /run/conf  && \
   [ -f /run/conf/soft_serial ] || echo "$SERIAL_NUM" > /run/conf/soft_serial
 
 PILLAR=/mnt/containers/services/pillar/lower
-mount /parts/rootfs.img /mnt &&
-  for i in dev proc sys ; do mount --bind /$i $PILLAR/$i ; done
+for i in dev proc sys ; do mount --bind /$i $PILLAR/$i ; done
 
 SERIAL_NUM=$(cat /run/conf/soft_serial) && \
   mkdir "/run/inventory/$SERIAL_NUM"
