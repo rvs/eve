@@ -110,6 +110,7 @@ do_efi() {
  
   # Get GRUB bootloader
   cp $EFI_DIR/BOOT/BOOT*EFI /efifs/EFI/BOOT
+  sed -i -e 's#PATH_TO_GRUB#'"$(cd /efifs; set EFI/BOOT/BOOT*EFI; echo $1)"'#' /efifs/EFI/BOOT/grub.cfg
 
   #   ...copy EFI fs to EFI partition
   dd if=`dir2vfat /efifs $(( ($SEC_END - $SEC_START) / 2))` of=$IMGFILE bs=512 conv=notrunc seek=$SEC_START
