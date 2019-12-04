@@ -101,7 +101,7 @@ SERIAL_NUM=$(uuidgen)
 INVENTORY_PART=$(find_part INVENTORY "$(root_dev)")
 DEST_CONF_PART=$(find_part CONFIG "$INSTALL_DEV")
 
-mkdir /run/conf /run/inventory && \
+mkdir -p /mnt/d /run/conf /run/inventory && \
   mount -t vfat "/dev/$INVENTORY_PART" /run/inventory && \
   mount -t vfat "/dev/$DEST_CONF_PART" /run/conf  && \
   [ -f /run/conf/soft_serial ] || echo "$SERIAL_NUM" > /run/conf/soft_serial
