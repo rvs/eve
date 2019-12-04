@@ -7,21 +7,24 @@ GOVER ?= 1.12.4
 PKGBASE=github.com/lf-edge/eve
 GOMODULE=$(PKGBASE)/pkg/pillar
 GOTREE=$(CURDIR)/pkg/pillar
-PROTO_LANGS?=go python
-
-APIDIRS = $(shell find ./api/* -maxdepth 1 -type d -exec basename {} \;)
-
-PATH := $(CURDIR)/build-tools/bin:$(PATH)
+PATH:=$(CURDIR)/build-tools/bin:$(PATH)
 
 export CGO_ENABLED GOOS GOARCH PATH
 
+# A set of tweakable knobs for our build needs (tweak at your risk!)
+# which language bindings to generate for EVE API
+PROTO_LANGS=go python
+# The default hypervisor is Xen. Use 'make HV=acrn' to build ACRN images. AMD64 only
+HV=xen
 # How large to we want the disk to be in Mb
 MEDIA_SIZE=8192
+# Image type for final disk images
 IMG_FORMAT=qcow2
+# Filesystem type for rootfs image
 ROOTFS_FORMAT=squash
-
-SSH_PORT := 2222
-
+# SSH port to use for running images live
+SSH_PORT=2222
+# Location of the EVE configuration folder to be used in builds
 CONF_DIR=conf
 
 USER         = $(shell id -u -n)
@@ -30,8 +33,9 @@ UID          = $(shell id -u)
 GID          = $(shell id -g)
 
 EVE_TREE_TAG = $(shell git describe --abbrev=8 --always --dirty)
+APIDIRS = $(shell find ./api/* -maxdepth 1 -type d -exec basename {} \;)
 
-HOSTARCH:=$(shell uname -m)
+HOSTARCH:=$(subst aarch64,arm64,$(subst x86_64,amd64,$(shell uname -m)))
 # by default, take the host architecture as the target architecture, but can override with `make ZARCH=foo`
 #    assuming that the toolchain supports it, of course...
 ZARCH ?= $(HOSTARCH)
@@ -41,37 +45,19 @@ ifneq ($(HOSTARCH),$(ZARCH))
 CROSS = 1
 $(warning "WARNING: We are assembling a $(ZARCH) image on $(HOSTARCH). Things may break.")
 endif
-# canonicalized names for architecture
-ifeq ($(ZARCH),aarch64)
-        ZARCH=arm64
-endif
-ifeq ($(ZARCH),x86_64)
-        ZARCH=amd64
-endif
 
-QEMU_SYSTEM_arm64:=qemu-system-aarch64
-QEMU_SYSTEM_amd64:=qemu-system-x86_64
-QEMU_SYSTEM=$(QEMU_SYSTEM_$(ZARCH))
+DOCKER_ARCH_TAG=$(ZARCH)
+
+# EVE rootfs image manifest
+ROOTFS_YML_xen_amd64=images/rootfs-xen.yml
+ROOTFS_YML_xen_arm64=images/rootfs-xen.yml
+ROOTFS_YML_acrn_amd64=images/rootfs-acrn.yml
+ROOTFS_YML_acrn_arm64=/dev/null
+ROOTFS_YML=$(ROOTFS_YML_$(HV)_$(ZARCH))
 
 # where we store outputs
 DIST=$(CURDIR)/dist/$(ZARCH)
 DOCKER_DIST=/eve/dist/$(ZARCH)
-
-DOCKER_ARCH_TAG=$(ZARCH)
-
-ROOTFS_YML_xen=images/rootfs-xen.yml
-ROOTFS_YML_acrn=images/rootfs-acrn.yml
-
-# The default hypervisor is Xen. Use 'make HV=acrn' to build ACRN images. AMD64 only
-HV ?= xen
-
-ifeq ($(ZARCH),arm64)
-	ROOTFS_YML=$(ROOTFS_YML_xen)
-endif
-ifeq ($(ZARCH),amd64)
-	ROOTFS_YML=$(ROOTFS_YML_$(HV))
-endif
-
 
 BIOS_IMG=$(DIST)/OVMF.fd
 LIVE_IMG=$(DIST)/live
@@ -81,12 +67,20 @@ INSTALLER=$(DIST)/installer
 ROOTFS_IMG=$(INSTALLER)/rootfs.img
 CONFIG_IMG=$(INSTALLER)/config.img
 INITRD_IMG=$(INSTALLER)/initrd.img
-DEVICETREE_DTB=$(INSTALLER)/eve.dtb
 EFI_PART=$(INSTALLER)/EFI
+
+DEVICETREE_DTB_amd64=
+DEVICETREE_DTB_arm64=$(DIST)/dtb/eve.dtb
+DEVICETREE_DTB=$(DEVICETREE_DTB_$(ZARCH))
 
 CONF_PART=$(CURDIR)/../adam/run/config
 
-QEMU_OPTS_arm64= -machine virt,gic_version=3 -machine virtualization=true -cpu cortex-a57 -machine type=virt
+# qemu settings
+QEMU_SYSTEM_arm64=qemu-system-aarch64
+QEMU_SYSTEM_amd64=qemu-system-x86_64
+QEMU_SYSTEM=$(QEMU_SYSTEM_$(ZARCH))
+
+QEMU_OPTS_arm64= -machine virt,gic_version=3 -machine virtualization=true -cpu cortex-a57 -machine type=virt -drive file=fat:rw:$(dir $(DEVICETREE_DTB)),format=vvfat
 # -drive file=./bios/flash0.img,format=raw,if=pflash -drive file=./bios/flash1.img,format=raw,if=pflash
 # [ -f bios/flash1.img ] || dd if=/dev/zero of=bios/flash1.img bs=1048576 count=64
 QEMU_OPTS_amd64= -cpu SandyBridge
@@ -162,7 +156,8 @@ build-tools: $(LINUXKIT)
 $(BIOS_IMG): $(LINUXKIT) | $(DIST)
 	cd $| ; $(DOCKER_UNPACK) $(shell $(LINUXKIT) pkg show-tag pkg/uefi)-$(DOCKER_ARCH_TAG) $(notdir $@)
 
-$(DEVICETREE_DTB): $(BIOS_IMG) | $(INSTALLER)
+$(DEVICETREE_DTB): $(BIOS_IMG) | $(DIST)
+	mkdir $(dir $@) 2>/dev/null || :
 	$(QEMU_SYSTEM) $(QEMU_OPTS) -machine dumpdtb=$@
 
 $(EFI_PART): $(LINUXKIT) | $(INSTALLER)
@@ -177,24 +172,26 @@ $(INITRD_IMG): $(LINUXKIT) | $(INSTALLER)
 # through the installer. It's the long road to live.img. Good for
 # testing.
 #
-run-installer-iso: $(BIOS_IMG)
+run-installer-iso: $(BIOS_IMG) $(DEVICETREE_DTB)
 	qemu-img create -f ${IMG_FORMAT} $(TARGET_IMG) ${MEDIA_SIZE}M
 	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive file=$(TARGET_IMG),format=$(IMG_FORMAT) -cdrom $(INSTALLER).iso -boot d
 
-run-installer-raw: $(BIOS_IMG)
+run-installer-raw: $(BIOS_IMG) $(DEVICETREE_DTB)
 	qemu-img create -f ${IMG_FORMAT} $(TARGET_IMG) ${MEDIA_SIZE}M
 	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive file=$(TARGET_IMG),format=$(IMG_FORMAT) -drive file=$(INSTALLER).raw,format=raw
 
-run-live run: $(BIOS_IMG)
+run-live run: $(BIOS_IMG) $(DEVICETREE_DTB)
 	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive file=$(LIVE_IMG).img,format=$(IMG_FORMAT)
 
-run-target: $(BIOS_IMG)
+run-target: $(BIOS_IMG) $(DEVICETREE_DTB)
 	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive file=$(TARGET_IMG),format=$(IMG_FORMAT)
 
-run-rootfs: $(BIOS_IMG) $(EFI_PART)
+run-rootfs: $(BIOS_IMG) $(EFI_PART) $(DEVICETREE_DTB)
+	(echo 'set devicetree="(hd0,msdos1)/eve.dtb"' ; echo 'set rootfs_root=/dev/vdb' ; echo 'set root=hd1' ; echo 'export rootfs_root' ; echo 'export devicetree' ; echo 'configfile /EFI/BOOT/grub.cfg' ) > $(EFI_PART)/BOOT/grub.cfg
 	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive file=$(ROOTFS_IMG),format=raw -drive file=fat:rw:$(EFI_PART)/..,label=CONFIG,format=vvfat
 
-run-grub: $(BIOS_IMG) $(EFI_PART)
+run-grub: $(BIOS_IMG) $(EFI_PART) $(DEVICETREE_DTB)
+	[ -f $(EFI_PART)/BOOT/grub.cfg ] && mv $(EFI_PART)/BOOT/grub.cfg $(EFI_PART)/BOOT/grub.cfg.$(notdir $(shell mktemp))
 	$(QEMU_SYSTEM) $(QEMU_OPTS) -drive format=vvfat,label=EVE,file=fat:rw:$(EFI_PART)/..
 
 # ensure the dist directory exists
@@ -228,7 +225,7 @@ $(LIVE_IMG).raw: $(EFI_PART) $(ROOTFS_IMG) $(INITRD_IMG) $(CONFIG_IMG) | $(INSTA
 	./tools/makeflash.sh -C ${MEDIA_SIZE} $| $@
 
 $(INSTALLER).raw: $(EFI_PART) $(ROOTFS_IMG) $(INITRD_IMG) $(CONFIG_IMG) | $(INSTALLER)
-	./tools/makeflash.sh -C 350 $| $@ "conf_win installer"
+	./tools/makeflash.sh -C 350 $| $@ "conf_win installer inventory_win"
 
 $(INSTALLER).iso: $(EFI_PART) $(ROOTFS_IMG) $(INITRD_IMG) $(CONFIG_IMG) | $(INSTALLER)
 	./tools/makeiso.sh $| $@
