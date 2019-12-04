@@ -30,7 +30,7 @@ function root_dev {
    local MINOR
    local DEV
 
-   if [ -e /dev/root]; then
+   if [ -e /dev/root ]; then
       DEV=$(readlink -f /dev/root 2>/dev/null)
    else
       DEV=/dev/$(cd /media ; echo */rootfs.img | sed -e 's#/.*$##') 
@@ -72,16 +72,16 @@ fi
 [ -z "$INSTALL_DEV" ] && bail "FATAL: didn't find a single free disk"
 
 # now lets figure out whether we have installation material
+mkdir /parts || :
 CONFIG_PART=$(find_part CONFIG "$(root_dev)")
-if [ -z "$CONFIG_PART" ] ; then
-   [ -f /bits/config.img ] && ln -s /bits/config.img /parts/config.img
-else
+if [ -n "$CONFIG_PART" ] ; then
    ln -s /dev/$CONFIG_PART /parts/config.img
 fi
-[ -f /bits/rootfs*.img ] && ln -s /bits/rootfs*.img /parts/rootfs.img
-# and the ultimate default is not to install anything
-for i in config.img rootfs.img ; do
-  [ -L /parts/$i ] || ln -s /dev/null /parts/$i
+
+for i in config.img rootfs.img EFI ; do
+   SOURCE="/bits/$i"
+   [ -e "$SOURCE" ] || SOURCE=/dev/null
+   [ -L /parts/$i ] || ln -s "$SOURCE" /parts/$i
 done
 # finally lets see if we were given any overrides
 grep -q eve_install_skip_rootfs /proc/cmdline && trunc /parts/rootfs.img

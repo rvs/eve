@@ -253,10 +253,13 @@ do_usb_conf() {
 #
 # Extract partitions from stdin or look them up in /bits
 #
+if [ ! -d /parts -o "$(cd /parts 2>/dev/null ; echo *)" = '*' ]; then
+   mkdir /parts
+   cd /parts
+   [ "$(cd /bits ; echo *)" = '*' ] || ln -s /bits/* .
+fi
 
-mkdir /parts 2>/dev/null || :
 cd /parts
-[ "$(cd /bits ; echo *)" = '*' ] || ln -s /bits/* .
 [ -t 0 ] || bsdtar xzf -
 
 # content of initrd installer image
