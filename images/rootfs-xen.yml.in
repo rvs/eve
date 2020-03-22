@@ -32,6 +32,8 @@ services:
      image: linuxkit/openntpd:v0.5
    - name: sshd
      image: linuxkit/sshd:v0.5
+   - name: debug
+     image: DEBUG_TAG
    - name: wwan
      image: WWAN_TAG
    - name: wlan

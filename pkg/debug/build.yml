@@ -8,6 +8,8 @@ config:
     - /run:/run
     - /var/log:/var/log/dom0
     - /:/hostfs
+    - /var/persist:/persist
+    - /var/config:/config
   net: host
   capabilities:
     - all

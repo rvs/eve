@@ -348,6 +348,11 @@ docker-old-images:
 docker-image-clean:
 	docker rmi -f $(shell ./tools/oldimages.sh)
 
+conf/tailscale.conf:
+	touch $@
+	docker run -v `pwd`/$@:/tailscale.conf $(shell $(LINUXKIT) pkg show-tag pkg/debug)      \
+                   sh -c "/bin/taillogin --config=/tmp/conf && cat /tmp/conf > /tailscale.conf"
+
 .PHONY: all clean test run pkgs help build-tools live rootfs config installer live FORCE $(DIST) HOSTARCH
 FORCE:
 
