@@ -322,6 +322,11 @@ if echo "$PARTS" | grep -q rpi_boot; then
       dd of="$IMGFILE" bs=1 seek=446 conv=noerror,sync,notrunc
 fi
 
+sgdisk -h1 $IMGFILE
+dd if=/usr/lib/grub/i386-pc/boot.img of=$IMGFILE bs=446 count=1 conv=noerror,sync,notrunc
+dd if=/efifs/EFI/BOOT/BOOT.pc of=$IMGFILE bs=512 seek=34 conv=noerror,sync,notrunc
+echo '#' | dd of=$IMGFILE bs=1 seek=$((34 * 512 + 500)) count=1 conv=noerror,sync,notrunc
+
 # Update embedded boot partition with our own bootloader
 GRUB_IMG="$(echo /efifs/EFI/BOOT/BOOT*.EFI)"
 if [ ${EMBED_BOOT_START:-0} -gt 0 -a ${EMBED_BOOT_SIZE:-0} -gt 0 -a -f "$GRUB_IMG" ] ; then
