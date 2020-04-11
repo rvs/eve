@@ -35,11 +35,13 @@ RUN mkdir /grub-lib && \
 # list of grub modules that are portable between x86_64 and aarch64
 ENV GRUB_MODULES_PORT="part_gpt fat ext2 iso9660 squash4 gzio linux acpi normal cpio crypto disk boot crc64 gpt \
 search_disk_uuid search_part_label search_label verify xzio xfs video gfxterm gptprio chain probe reboot        \
-regexp smbios part_msdos cat echo test configfile loopback"
+regexp smbios part_msdos cat echo test configfile loopback serial"
 ENV GRUB_MODULES_efi_x86_64="multiboot multiboot2 efi_uga efi_gop"
-ENV GRUB_MODULES_pc_x86_64="multiboot multiboot2 biosdisk"
+ENV GRUB_MODULES_pc_x86_64="-c /embedded.cfg multiboot multiboot2 biosdisk"
 ENV GRUB_MODULES_efi_aarch64="xen_boot efi_gop"
 ENV GRUB_MODULES_pc_aarch64="xen_boot efi_gop"
+
+COPY embedded.cfg /
 
 WORKDIR /grub
 RUN for flavor in efi pc; do                                                                                                \
