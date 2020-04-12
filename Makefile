@@ -24,6 +24,8 @@ MEDIA_SIZE=8192
 IMG_FORMAT=qcow2
 # Filesystem type for rootfs image
 ROOTFS_FORMAT=squash
+# Image type for installer image
+INSTALLER_IMG_FORMAT=raw
 # SSH port to use for running images live
 SSH_PORT=2222
 # Use QEMU H/W accelearation (any non-empty value will trigger using it)
@@ -74,10 +76,11 @@ DIST=$(CURDIR)/dist/$(ZARCH)
 DOCKER_DIST=/eve/dist/$(ZARCH)
 
 BIOS_IMG=$(DIST)/OVMF.fd
+LIVE=$(DIST)/live
 LIVE_IMG=$(DIST)/live.$(IMG_FORMAT)
-LIVE_IMG_RAW=$(DIST)/live.raw
 TARGET_IMG=$(DIST)/target.img
 INSTALLER=$(DIST)/installer
+INSTALLER_IMG=$(INSTALLER).$(INSTALLER_IMG_FORMAT)
 
 ROOTFS=$(INSTALLER)/rootfs
 ROOTFS_FULL_NAME=$(INSTALLER)/rootfs-$(ROOTFS_VERSION)
@@ -244,12 +247,11 @@ $(DIST) $(INSTALLER):
 initrd: $(INITRD_IMG)
 config: $(CONFIG_IMG)
 rootfs: $(ROOTFS_IMG)
+rootfs-%: $(ROOTFS)-%.img ;
 live: $(LIVE_IMG)
-live-raw: $(LIVE_IMG_RAW)
-installer: $(INSTALLER).raw
-installer-iso: $(INSTALLER).iso
-rootfs-%: $(ROOTFS)-%.img
-	@true
+live-%: $(LIVE).% ;
+installer: $(INSTALLER_IMG)
+installer-%: $(INSTALLER).% ;
 
 $(CONFIG_IMG): $(CONF_FILES) | $(INSTALLER)
 	./tools/makeconfig.sh $@ $(CONF_FILES)
@@ -260,8 +262,8 @@ $(ROOTFS)-%.img: $(ROOTFS_FULL_NAME)-%-$(ZARCH).$(ROOTFS_FORMAT)
 $(ROOTFS_IMG): $(ROOTFS)-$(HV).img
 	@rm -f $@ && ln -s $(notdir $<) $@
 
-$(LIVE_IMG_RAW): $(BOOT_PART) $(EFI_PART) $(ROOTFS_IMG) $(CONFIG_IMG) | $(INSTALLER)
-	./tools/makeflash.sh -C 380 $| $@ $(PART_SPEC)
+$(LIVE).raw: $(BOOT_PART) $(EFI_PART) $(ROOTFS_IMG) $(CONFIG_IMG) | $(INSTALLER)
+	./tools/makeflash.sh -C 350 $| $@ $(PART_SPEC)
 
 $(INSTALLER).raw: $(EFI_PART) $(ROOTFS_IMG) $(INITRD_IMG) $(CONFIG_IMG) | $(INSTALLER)
 	./tools/makeflash.sh -C 350 $| $@ "conf_win installer inventory_win"
@@ -343,6 +345,13 @@ endif
 #
 # Common, generalized rules
 #
+%.gcp: %.raw | $(DIST)
+	cp $< $@
+	dd of=$@ bs=1 seek=$$(($(MEDIA_SIZE) * 1024 * 1024)) count=0
+	rm -f $(dir $@)/disk.raw ; ln -s $(notdir $@) $(dir $@)/disk.raw
+	$(DOCKER_GO) "tar --mode=644 --owner=root --group=root -S -h -czvf $(notdir $*).img.tar.gz disk.raw" $(DIST) dist
+	rm -f $(dir $@)/disk.raw
+
 %.qcow2: %.raw | $(DIST)
 	qemu-img convert -c -f raw -O qcow2 $< $@
 	qemu-img resize $@ ${MEDIA_SIZE}M
@@ -413,7 +422,7 @@ help:
 	@echo "   rootfs         builds default EVE rootfs image (upload it to the cloud as BaseImage)"
 	@echo "   rootfs-XXX     builds a particular kind of EVE rootfs image (xen, kvm, rpi)"
 	@echo "   live           builds a full disk image of EVE which can be function as a virtual device"
-	@echo "   live-XXX       builds a particular kind of EVE live image (raw, qcow2)"
+	@echo "   live-XXX       builds a particular kind of EVE live image (raw, qcow2, gcp)"
 	@echo "   installer      builds raw disk installer image (to be installed on bootable media)"
 	@echo "   installer-iso  builds an ISO installers image (to be installed on bootable media)"
 	@echo
