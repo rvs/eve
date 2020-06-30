@@ -66,6 +66,7 @@ ADD scripts/device-steps.sh \
     scripts/generate-self-signed.sh \
     scripts/handlezedserverconfig.sh \
     scripts/veth.sh \
+    scripts/xen-disable-vif.sh \
   /opt/zededa/bin/
 ADD conf/lisp.config.base /var/tmp/zededa/lisp.config.base
 
