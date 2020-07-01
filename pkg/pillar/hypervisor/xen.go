@@ -373,13 +373,13 @@ func (ctx xenContext) Start(domainName string, domainID int) error {
 	if err != nil {
 		// XXX continuing even if we get a failure?
 		log.Errorln("xen-disable-vif.sh write failed, continuing anyway", err)
-		log.Errorln("xen-disable-vif.sh write output ", string(stdOut), string(stdErr})
+		log.Errorln("xen-disable-vif.sh write output ", string(stdOut), string(stdErr))
 	} else {
 		log.Debugf("xenstore write done. Result %s", string(stdOut))
 	}
 
 	log.Infof("xlUnpause %s %d\n", domainName, domainID)
-	stdOut, stdErr, err := containerd.CtrExec(domainName, false,
+	stdOut, stdErr, err = containerd.CtrExec(domainName, false,
 		[]string{"xl", "unpause", domainName})
 	if err != nil {
 		log.Errorln("xl unpause failed ", err)
@@ -433,7 +433,7 @@ func (ctx xenContext) Info(domainName string, domainID int) (int, DomState, erro
         if err != nil {
                 log.Errorln("xl list failed ", err)
                 log.Errorln("xl list output ", string(stdOut), string(stdErr))
-                return fmt.Errorf("xl list failed: %s %s", string(stdOut), string(stdErr))
+                return 0, Unknown, fmt.Errorf("xl list failed: %s %s", string(stdOut), string(stdErr))
         }
 	log.Infof("xl list done. Result %s\n", string(stdOut))
 
@@ -446,7 +446,7 @@ func (ctx xenContext) Info(domainName string, domainID int) (int, DomState, erro
 	//Removing all extra space between column result and split the result as array.
 	xlDomainResult := regexp.MustCompile(`\s+`).ReplaceAllString(cmdResponse[1], " ")
 	//Domain's status is 5th column in xl list <domain> result
-	domainState = strings.Split(xlDomainResult, " ")[4]
+	domainState := strings.Split(xlDomainResult, " ")[4]
 	//Removing all unset state bits represented by "-"
 	domainState = strings.ReplaceAll(domainState, "-", "")
 	//Domain's ID is the 2nd columd in xl list <domain> result
