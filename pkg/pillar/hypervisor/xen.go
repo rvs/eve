@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	zconfig "github.com/lf-edge/eve/api/go/config"
+	"github.com/lf-edge/eve/pkg/pillar/containerd"
 	"github.com/lf-edge/eve/pkg/pillar/types"
 	"github.com/lf-edge/eve/pkg/pillar/wrap"
 	"github.com/shirou/gopsutil/cpu"
@@ -341,92 +342,69 @@ func (ctx xenContext) CreateDomConfig(domainName string, config types.DomainConf
 
 func (ctx xenContext) Create(domainName string, xenCfgFilename string, config *types.DomainConfig) (int, error) {
 	log.Infof("xlCreate %s %s\n", domainName, xenCfgFilename)
-	cmd := "xl"
-	args := []string{
-		"create",
-		xenCfgFilename,
-		"-p",
-	}
-	stdoutStderr, err := wrap.Command(cmd, args...).CombinedOutput()
+	_, err := containerd.LKTaskLaunch(domainName, "xen-tools", config,
+		[]string{"xl", "create", xenCfgFilename, "-p", "-F", "-c"})
 	if err != nil {
 		log.Errorln("xl create failed ", err)
-		log.Errorln("xl create output ", string(stdoutStderr))
-		return 0, fmt.Errorf("xl create failed: %s\n",
-			string(stdoutStderr))
+		return 0, fmt.Errorf("xl create failed")
 	}
 	log.Infof("xl create done\n")
 
-	args = []string{
-		"domid",
-		domainName,
-	}
-	stdoutStderr, err = wrap.Command(cmd, args...).CombinedOutput()
+	stdOut, stdErr, err := containerd.CtrExec(domainName, false,
+		[]string{"xl", "domid", domainName})
 	if err != nil {
 		log.Errorln("xl domid failed ", err)
-		log.Errorln("xl domid output ", string(stdoutStderr))
-		return 0, fmt.Errorf("xl domid failed: %s\n",
-			string(stdoutStderr))
+		log.Errorln("xl domid output ", string(stdOut), string(stdErr))
+		return 0, fmt.Errorf("xl domid failed: %s %s", string(stdOut), string(stdErr))
 	}
-	res := strings.TrimSpace(string(stdoutStderr))
+	res := strings.TrimSpace(string(stdOut))
 	domainID, err := strconv.Atoi(res)
 	if err != nil {
-		log.Errorf("Can't extract domainID from %s: %s\n", res, err)
-		return 0, fmt.Errorf("Can't extract domainID from %s: %s\n", res, err)
+		log.Errorf("Can't extract domainID from %s: %s", res, err)
+		return 0, fmt.Errorf("Can't extract domainID from %s: %s", res, err)
 	}
 	return domainID, nil
 }
 
 func (ctx xenContext) Start(domainName string, domainID int) error {
 	// Disable offloads for all vifs
-	stdoutStderr, err := wrap.Command("/opt/zededa/bin/xen-disable-vif.sh",
-		strconv.Itoa(domainID)).CombinedOutput()
+	stdOut, stdErr, err := containerd.CtrExec(domainName, false,
+		[]string{"/opt/zededa/bin/xen-disable-vif.sh", strconv.Itoa(domainID)})
 	if err != nil {
 		// XXX continuing even if we get a failure?
 		log.Errorln("xen-disable-vif.sh write failed, continuing anyway", err)
-		log.Errorln("xen-disable-vif.sh write output ", string(stdoutStderr))
+		log.Errorln("xen-disable-vif.sh write output ", string(stdOut), string(stdErr})
 	} else {
-		log.Debugf("xenstore write done. Result %s\n", string(stdoutStderr))
+		log.Debugf("xenstore write done. Result %s", string(stdOut))
 	}
 
 	log.Infof("xlUnpause %s %d\n", domainName, domainID)
-	cmd := "xl"
-	args := []string{
-		"unpause",
-		domainName,
-	}
-	stdoutStderr, err = wrap.Command(cmd, args...).CombinedOutput()
+	stdOut, stdErr, err := containerd.CtrExec(domainName, false,
+		[]string{"xl", "unpause", domainName})
 	if err != nil {
 		log.Errorln("xl unpause failed ", err)
-		log.Errorln("xl unpause output ", string(stdoutStderr))
-		return fmt.Errorf("xl unpause failed: %s\n",
-			string(stdoutStderr))
+		log.Errorln("xl unpause output ", string(stdOut), string(stdErr))
+		return fmt.Errorf("xl unpause failed: %s %s", string(stdOut), string(stdErr))
 	}
-	log.Infof("xlUnpause done. Result %s\n", string(stdoutStderr))
+	log.Infof("xlUnpause done. Result %s", string(stdOut))
 	return nil
 }
 
 func (ctx xenContext) Stop(domainName string, domainID int, force bool) error {
 	log.Infof("xlShutdown %s %d\n", domainName, domainID)
-	cmd := "xl"
-	var args []string
-	if force {
-		args = []string{
-			"shutdown",
-			"-F",
-			domainName,
-		}
-	} else {
-		args = []string{
-			"shutdown",
-			domainName,
-		}
+	args := []string{
+		"xl",
+		"shutdown",
+		domainName,
 	}
-	stdoutStderr, err := wrap.Command(cmd, args...).CombinedOutput()
+	if force {
+		args = append(args, "-F")
+	}
+	stdOut, stdErr, err := containerd.CtrExec(domainName, false, args)
 	if err != nil {
 		log.Errorln("xl shutdown failed ", err)
-		log.Errorln("xl shutdown output ", string(stdoutStderr))
-		return fmt.Errorf("xl shutdown failed: %s\n",
-			string(stdoutStderr))
+		log.Errorln("xl shutdown output ", string(stdOut), string(stdErr))
+		return fmt.Errorf("xl shutdown failed: %s %s", string(stdOut), string(stdErr))
 	}
 	log.Infof("xl shutdown done\n")
 	return nil
@@ -434,17 +412,12 @@ func (ctx xenContext) Stop(domainName string, domainID int, force bool) error {
 
 func (ctx xenContext) Delete(domainName string, domainID int) error {
 	log.Infof("xlDestroy %s %d\n", domainName, domainID)
-	cmd := "xl"
-	args := []string{
-		"destroy",
-		domainName,
-	}
-	stdoutStderr, err := wrap.Command(cmd, args...).CombinedOutput()
+	stdOut, stdErr, err := containerd.CtrExec(domainName, false,
+		[]string{"xl", "destroy", domainName})
 	if err != nil {
 		log.Errorln("xl destroy failed ", err)
-		log.Errorln("xl destroy output ", string(stdoutStderr))
-		return fmt.Errorf("xl destroy failed: %s\n",
-			string(stdoutStderr))
+		log.Errorln("xl destroy output ", string(stdOut), string(stdErr))
+		return fmt.Errorf("xl destroy failed: %s %s", string(stdOut), string(stdErr))
 	}
 	log.Infof("xl destroy done\n")
 	return nil
@@ -453,27 +426,22 @@ func (ctx xenContext) Delete(domainName string, domainID int) error {
 func (ctx xenContext) Info(domainName string, domainID int) (int, DomState, error) {
 	log.Infof("xlStatus %s %d\n", domainName, domainID)
 
-	domainState := ""
-	cmd := "xl"
-	args := []string{
-		"list",
-		domainName,
-	}
-	stdoutStderr, err := wrap.Command(cmd, args...).CombinedOutput()
-	if err != nil {
-		//domain is not present
-		log.Errorln("Info: xl list failed ", err)
-		log.Errorln("Info: xl list output ", string(stdoutStderr))
-		return 0, Unknown, fmt.Errorf("info: xl list failed: %v", err)
-	} else {
-		log.Infof("xl list done. Result %s\n", string(stdoutStderr))
-	}
+        // XXX xl list -l domainName returns json. XXX but state not included!
+        // Note that state is not very useful anyhow
+        stdOut, stdErr, err := containerd.CtrExec(domainName, false,
+                []string{"xl", "list", domainName})
+        if err != nil {
+                log.Errorln("xl list failed ", err)
+                log.Errorln("xl list output ", string(stdOut), string(stdErr))
+                return fmt.Errorf("xl list failed: %s %s", string(stdOut), string(stdErr))
+        }
+	log.Infof("xl list done. Result %s\n", string(stdOut))
 
 	//stdoutStderr should have 2 rows separated by '\n'. Where 1st row will be column names and 2nd row will be domain details
-	cmdResponse := strings.Split(string(stdoutStderr), "\n")
+	cmdResponse := strings.Split(string(stdOut), "\n")
 	if len(cmdResponse) < 2 {
-		log.Errorln("Info: domain not present in xl list output", string(stdoutStderr))
-		return 0, Unknown, fmt.Errorf("info: domain not present in xl list output %s", string(stdoutStderr))
+		log.Errorln("Info: domain not present in xl list output", string(stdOut))
+		return 0, Unknown, fmt.Errorf("info: domain not present in xl list output %s", string(stdOut))
 	}
 	//Removing all extra space between column result and split the result as array.
 	xlDomainResult := regexp.MustCompile(`\s+`).ReplaceAllString(cmdResponse[1], " ")
@@ -525,58 +493,6 @@ func (ctx xenContext) Info(domainName string, domainID int) (int, DomState, erro
 	}
 
 	return effectiveDomainID, effectiveDomainState, nil
-}
-
-// Perform xenstore write to disable all of these for all VIFs
-// feature-sg, feature-gso-tcpv4, feature-gso-tcpv6, feature-ipv6-csum-offload
-func disableVifOffload(domainName string, domainID int, vifCount int) error {
-	log.Infof("xlDisableVifOffload %s %d %d\n",
-		domainName, domainID, vifCount)
-	pref := "/local/domain"
-	for i := 0; i < vifCount; i += 1 {
-		varNames := []string{
-			fmt.Sprintf("%s/0/backend/vif/%d/%d/feature-sg",
-				pref, domainID, i),
-			fmt.Sprintf("%s/0/backend/vif/%d/%d/feature-gso-tcpv4",
-				pref, domainID, i),
-			fmt.Sprintf("%s/0/backend/vif/%d/%d/feature-gso-tcpv6",
-				pref, domainID, i),
-			fmt.Sprintf("%s/0/backend/vif/%d/%d/feature-ipv4-csum-offload",
-				pref, domainID, i),
-			fmt.Sprintf("%s/0/backend/vif/%d/%d/feature-ipv6-csum-offload",
-				pref, domainID, i),
-			fmt.Sprintf("%s/%d/device/vif/%d/feature-sg",
-				pref, domainID, i),
-			fmt.Sprintf("%s/%d/device/vif/%d/feature-gso-tcpv4",
-				pref, domainID, i),
-			fmt.Sprintf("%s/%d/device/vif/%d/feature-gso-tcpv6",
-				pref, domainID, i),
-			fmt.Sprintf("%s/%d/device/vif/%d/feature-ipv4-csum-offload",
-				pref, domainID, i),
-			fmt.Sprintf("%s/%d/device/vif/%d/feature-ipv6-csum-offload",
-				pref, domainID, i),
-		}
-		for _, varName := range varNames {
-			cmd := "xenstore"
-			args := []string{
-				"write",
-				varName,
-				"0",
-			}
-			stdoutStderr, err := wrap.Command(cmd, args...).CombinedOutput()
-			if err != nil {
-				log.Errorln("xenstore write failed ", err)
-				log.Errorln("xenstore write output ", string(stdoutStderr))
-				return fmt.Errorf("xenstore write failed: %s\n",
-					string(stdoutStderr))
-			}
-			log.Debugf("xenstore write done. Result %s\n",
-				string(stdoutStderr))
-		}
-	}
-
-	log.Infof("xlDisableVifOffload done.\n")
-	return nil
 }
 
 func (ctx xenContext) PCIReserve(long string) error {

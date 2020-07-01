@@ -1,6 +1,7 @@
 package containerd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -375,6 +376,66 @@ func CtrStartContainer(domainName string) (int, error) {
 	}
 
 	return int(task.Pid()), nil
+}
+
+// CtrStartContainer starts the default task in a pre-existing container and attaches its logging to memlogd
+func CtrExec(domainName string, tty bool, args []string) ([]byte, []byte, error) {
+	if err := verifyCtr(); err != nil {
+		return nil, nil, fmt.Errorf("CtrStartContainer: exception while verifying ctrd client: %s", err.Error())
+	}
+	ctr, err := CtrLoadContainer(domainName)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	spec, err := ctr.Spec(ctrdCtx)
+	if err != nil {
+		return nil, nil, err
+	}
+	task, err := ctr.Task(ctrdCtx, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pspec := spec.Process
+	pspec.Terminal = true
+	pspec.Args = args
+
+	// plumb the process for I/O
+	var (
+		stdOut bytes.Buffer
+		stdErr bytes.Buffer
+	)
+	cioOpts := []cio.Opt{cio.WithStreams(new(bytes.Buffer), &stdOut, &stdErr), cio.WithFIFODir(fifoDir)}
+	if tty {
+		cioOpts = append(cioOpts, cio.WithTerminal)
+	}
+	process, err := task.Exec(ctrdCtx, context.String("exec-id"), pspec, cio.NewCreator(cioOpts...))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer process.Delete(ctrdCtx)
+
+	// prepare an exit code channel
+	statusC, err := process.Wait(ctrdCtx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// finally - run it (asynchronously)
+	if err := process.Start(ctrdCtx); err != nil {
+		return nil, nil, err
+	}
+
+	// block until the process exits
+	// XXX: this maybe a good place to have a timer as well
+	status := <-statusC
+	code, _, err := status.Result()
+	if err == nil && code != 0 {
+		err = fmt.Errorf("execution failed with exit status %d", code)
+	}
+
+	return stdOut.Bytes(), stdErr.Bytes(), err
 }
 
 // CtrStopContainer stops (kills) the main task in the container
