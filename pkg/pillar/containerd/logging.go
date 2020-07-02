@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	fifoDir string = "/var/run/tasks/fifos"
-	logDumpCommand byte = iota
+	fifoDir        string = "/var/run/tasks/fifos"
+	logDumpCommand byte   = iota
 )
 
 type logio struct {

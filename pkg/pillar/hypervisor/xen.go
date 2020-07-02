@@ -4,7 +4,6 @@
 package hypervisor
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	zconfig "github.com/lf-edge/eve/api/go/config"
@@ -13,14 +12,11 @@ import (
 	"github.com/lf-edge/eve/pkg/pillar/wrap"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
+	log "github.com/sirupsen/logrus"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -350,7 +346,7 @@ func (ctx xenContext) Create(domainName string, xenCfgFilename string, config *t
 	}
 	log.Infof("xl create done\n")
 
-	stdOut, stdErr, err := containerd.CtrExec(domainName, false,
+	stdOut, stdErr, err := containerd.CtrExec(domainName,
 		[]string{"xl", "domid", domainName})
 	if err != nil {
 		log.Errorln("xl domid failed ", err)
@@ -368,7 +364,7 @@ func (ctx xenContext) Create(domainName string, xenCfgFilename string, config *t
 
 func (ctx xenContext) Start(domainName string, domainID int) error {
 	// Disable offloads for all vifs
-	stdOut, stdErr, err := containerd.CtrExec(domainName, false,
+	stdOut, stdErr, err := containerd.CtrExec(domainName,
 		[]string{"/opt/zededa/bin/xen-disable-vif.sh", strconv.Itoa(domainID)})
 	if err != nil {
 		// XXX continuing even if we get a failure?
@@ -379,7 +375,7 @@ func (ctx xenContext) Start(domainName string, domainID int) error {
 	}
 
 	log.Infof("xlUnpause %s %d\n", domainName, domainID)
-	stdOut, stdErr, err = containerd.CtrExec(domainName, false,
+	stdOut, stdErr, err = containerd.CtrExec(domainName,
 		[]string{"xl", "unpause", domainName})
 	if err != nil {
 		log.Errorln("xl unpause failed ", err)
@@ -400,7 +396,7 @@ func (ctx xenContext) Stop(domainName string, domainID int, force bool) error {
 	if force {
 		args = append(args, "-F")
 	}
-	stdOut, stdErr, err := containerd.CtrExec(domainName, false, args)
+	stdOut, stdErr, err := containerd.CtrExec(domainName, args)
 	if err != nil {
 		log.Errorln("xl shutdown failed ", err)
 		log.Errorln("xl shutdown output ", string(stdOut), string(stdErr))
@@ -412,7 +408,7 @@ func (ctx xenContext) Stop(domainName string, domainID int, force bool) error {
 
 func (ctx xenContext) Delete(domainName string, domainID int) error {
 	log.Infof("xlDestroy %s %d\n", domainName, domainID)
-	stdOut, stdErr, err := containerd.CtrExec(domainName, false,
+	stdOut, stdErr, err := containerd.CtrExec(domainName,
 		[]string{"xl", "destroy", domainName})
 	if err != nil {
 		log.Errorln("xl destroy failed ", err)
@@ -426,15 +422,15 @@ func (ctx xenContext) Delete(domainName string, domainID int) error {
 func (ctx xenContext) Info(domainName string, domainID int) (int, DomState, error) {
 	log.Infof("xlStatus %s %d\n", domainName, domainID)
 
-        // XXX xl list -l domainName returns json. XXX but state not included!
-        // Note that state is not very useful anyhow
-        stdOut, stdErr, err := containerd.CtrExec(domainName, false,
-                []string{"xl", "list", domainName})
-        if err != nil {
-                log.Errorln("xl list failed ", err)
-                log.Errorln("xl list output ", string(stdOut), string(stdErr))
-                return 0, Unknown, fmt.Errorf("xl list failed: %s %s", string(stdOut), string(stdErr))
-        }
+	// XXX xl list -l domainName returns json. XXX but state not included!
+	// Note that state is not very useful anyhow
+	stdOut, stdErr, err := containerd.CtrExec(domainName,
+		[]string{"xl", "list", domainName})
+	if err != nil {
+		log.Errorln("xl list failed ", err)
+		log.Errorln("xl list output ", string(stdOut), string(stdErr))
+		return 0, Unknown, fmt.Errorf("xl list failed: %s %s", string(stdOut), string(stdErr))
+	}
 	log.Infof("xl list done. Result %s\n", string(stdOut))
 
 	//stdoutStderr should have 2 rows separated by '\n'. Where 1st row will be column names and 2nd row will be domain details
@@ -497,15 +493,10 @@ func (ctx xenContext) Info(domainName string, domainID int) (int, DomState, erro
 
 func (ctx xenContext) PCIReserve(long string) error {
 	log.Infof("pciAssignableAdd %s\n", long)
-	cmd := "xl"
-	args := []string{
-		"pci-assignable-add",
-		long,
-	}
-	stdoutStderr, err := wrap.Command(cmd, args...).CombinedOutput()
+	stdOut, stdErr, err := containerd.CtrExec2("xen-tools",
+		[]string{"xl", "pci-assignable-add", long})
 	if err != nil {
-		errStr := fmt.Sprintf("xl pci-assignable-add failed: %s\n",
-			string(stdoutStderr))
+		errStr := fmt.Sprintf("xl pci-assignable-add failed: %s %s", string(stdOut), string(stdErr))
 		log.Errorln(errStr)
 		return errors.New(errStr)
 	}
@@ -515,16 +506,10 @@ func (ctx xenContext) PCIReserve(long string) error {
 
 func (ctx xenContext) PCIRelease(long string) error {
 	log.Infof("pciAssignableRemove %s\n", long)
-	cmd := "xl"
-	args := []string{
-		"pci-assignable-rem",
-		"-r",
-		long,
-	}
-	stdoutStderr, err := wrap.Command(cmd, args...).CombinedOutput()
+	stdOut, stdErr, err := containerd.CtrExec2("xen-tools",
+		[]string{"xl", "pci-assignable-rem", "-r", long})
 	if err != nil {
-		errStr := fmt.Sprintf("xl pci-assignable-rem failed: %s\n",
-			string(stdoutStderr))
+		errStr := fmt.Sprintf("xl pci-assignable-rem failed: %s %s", string(stdOut), string(stdErr))
 		log.Errorln(errStr)
 		return errors.New(errStr)
 	}
@@ -533,10 +518,10 @@ func (ctx xenContext) PCIRelease(long string) error {
 }
 
 func (ctx xenContext) GetHostCPUMem() (types.HostMemory, error) {
-	xlCmd := exec.Command("xl", "info")
-	stdout, err := xlCmd.Output()
+	stdout, stderr, err := containerd.CtrExec2("xen-tools",
+		[]string{"xl", "info"})
 	if err != nil {
-		log.Errorf("xl info failed %s\n falling back on Dom0 stats", err)
+		log.Errorf("xl info failed %s %s falling back on Dom0 stats: %v", string(stdout), string(stderr), err)
 		return selfDomCPUMem()
 	}
 
@@ -584,7 +569,8 @@ func (ctx xenContext) GetHostCPUMem() (types.HostMemory, error) {
 func (ctx xenContext) GetDomsCPUMem() (map[string]types.DomainMetric, error) {
 	count := 0
 	counter := 0
-	stdout, _, _ := execWithTimeout("xentop", "-b", "-d", "1", "-i", "2", "-f")
+	stdout, _, _ := containerd.CtrExec2("xen-tools",
+		[]string{"xentop", "-b", "-d", "1", "-i", "2", "-f"})
 	xentopInfo := string(stdout)
 
 	splitXentopInfo := strings.Split(xentopInfo, "\n")
@@ -748,17 +734,4 @@ func fallbackDomainMetric() map[string]types.DomainMetric {
 	}
 	dmList[dom0Name] = dm
 	return dmList
-}
-
-func execWithTimeout(command string, args ...string) ([]byte, bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(),
-		10*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, command, args...)
-	out, err := cmd.Output()
-	if ctx.Err() == context.DeadlineExceeded {
-		return nil, false, nil
-	}
-	return out, true, err
 }
