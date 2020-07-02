@@ -493,7 +493,7 @@ func (ctx xenContext) Info(domainName string, domainID int) (int, DomState, erro
 
 func (ctx xenContext) PCIReserve(long string) error {
 	log.Infof("pciAssignableAdd %s\n", long)
-	stdOut, stdErr, err := containerd.CtrExec2("xen-tools",
+	stdOut, stdErr, err := containerd.CtrSystemExec("xen-tools",
 		[]string{"xl", "pci-assignable-add", long})
 	if err != nil {
 		errStr := fmt.Sprintf("xl pci-assignable-add failed: %s %s", string(stdOut), string(stdErr))
@@ -506,7 +506,7 @@ func (ctx xenContext) PCIReserve(long string) error {
 
 func (ctx xenContext) PCIRelease(long string) error {
 	log.Infof("pciAssignableRemove %s\n", long)
-	stdOut, stdErr, err := containerd.CtrExec2("xen-tools",
+	stdOut, stdErr, err := containerd.CtrSystemExec("xen-tools",
 		[]string{"xl", "pci-assignable-rem", "-r", long})
 	if err != nil {
 		errStr := fmt.Sprintf("xl pci-assignable-rem failed: %s %s", string(stdOut), string(stdErr))
@@ -518,7 +518,7 @@ func (ctx xenContext) PCIRelease(long string) error {
 }
 
 func (ctx xenContext) GetHostCPUMem() (types.HostMemory, error) {
-	stdout, stderr, err := containerd.CtrExec2("xen-tools",
+	stdout, stderr, err := containerd.CtrSystemExec("xen-tools",
 		[]string{"xl", "info"})
 	if err != nil {
 		log.Errorf("xl info failed %s %s falling back on Dom0 stats: %v", string(stdout), string(stderr), err)
@@ -569,7 +569,7 @@ func (ctx xenContext) GetHostCPUMem() (types.HostMemory, error) {
 func (ctx xenContext) GetDomsCPUMem() (map[string]types.DomainMetric, error) {
 	count := 0
 	counter := 0
-	stdout, _, _ := containerd.CtrExec2("xen-tools",
+	stdout, _, _ := containerd.CtrSystemExec("xen-tools",
 		[]string{"xentop", "-b", "-d", "1", "-i", "2", "-f"})
 	xentopInfo := string(stdout)
 

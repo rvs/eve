@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"strconv"
 	"time"
 
 	v1stat "github.com/containerd/cgroups/stats/v1"
@@ -28,7 +29,9 @@ import (
 const (
 	// containerd socket
 	ctrdSocket = "/run/containerd/containerd.sock"
-	// ctrdServicesNamespace containerd namespace for running containers
+	// ctrdSystemServicesNamespace containerd namespace for EVE system containers
+	ctrdSystemServicesNamespace = "services.linuxkit"
+	// ctrdServicesNamespace containerd namespace for running user containers
 	ctrdServicesNamespace = "eve-user-apps"
 	//containerdRunTime - default runtime of containerd
 	containerdRunTime = "io.containerd.runtime.v1.linux"
@@ -41,6 +44,7 @@ const (
 
 var (
 	ctrdCtx context.Context
+	ctrdSystemCtx context.Context
 	// CtrdClient is a handle to the current containerd client API
 	CtrdClient   *containerd.Client
 	contentStore content.Store
@@ -51,6 +55,9 @@ func InitContainerdClient() error {
 	var err error
 	if ctrdCtx == nil {
 		ctrdCtx = namespaces.WithNamespace(context.Background(), ctrdServicesNamespace)
+	}
+	if ctrdSystemCtx == nil {
+		ctrdSystemCtx = namespaces.WithNamespace(context.Background(), ctrdSystemServicesNamespace)
 	}
 	if CtrdClient == nil {
 		CtrdClient, err = containerd.New(ctrdSocket, containerd.WithDefaultRuntime(containerdRunTime))
@@ -380,7 +387,7 @@ func CtrStartContainer(domainName string) (int, error) {
 }
 
 // CtrExec starts the executable in a running container and attaches its logging to memlogd
-func CtrExec(domainName string, args []string) ([]byte, []byte, error) {
+func ctrExec(ctx context.Context, domainName string, args []string) ([]byte, []byte, error) {
 	if err := verifyCtr(); err != nil {
 		return nil, nil, fmt.Errorf("CtrStartContainer: exception while verifying ctrd client: %s", err.Error())
 	}
@@ -389,11 +396,11 @@ func CtrExec(domainName string, args []string) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	spec, err := ctr.Spec(ctrdCtx)
+	spec, err := ctr.Spec(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	task, err := ctr.Task(ctrdCtx, nil)
+	task, err := ctr.Task(ctx, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -408,90 +415,47 @@ func CtrExec(domainName string, args []string) ([]byte, []byte, error) {
 		stdErr bytes.Buffer
 	)
 	cioOpts := []cio.Opt{cio.WithStreams(new(bytes.Buffer), &stdOut, &stdErr), cio.WithFIFODir(fifoDir)}
-	process, err := task.Exec(ctrdCtx, domainName+string(rand.Int()), pspec, cio.NewCreator(cioOpts...))
+	process, err := task.Exec(ctx, domainName+strconv.Itoa(rand.Int()), pspec, cio.NewCreator(cioOpts...))
 	if err != nil {
 		return nil, nil, err
 	}
-	defer process.Delete(ctrdCtx)
+	defer process.Delete(ctx)
 
 	// prepare an exit code channel
-	statusC, err := process.Wait(ctrdCtx)
+	statusC, err := process.Wait(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// finally - run it (asynchronously)
-	if err := process.Start(ctrdCtx); err != nil {
+	if err := process.Start(ctx); err != nil {
 		return nil, nil, err
 	}
 
-	// block until the process exits
-	// XXX: this maybe a good place to have a timer as well
-	status := <-statusC
-	code, _, err := status.Result()
-	if err == nil && code != 0 {
-		err = fmt.Errorf("execution failed with exit status %d", code)
+	// block until the process exits or the timer fires
+	timer := time.NewTimer(30 * time.Second)
+	select {
+	case status := <-statusC:
+		if code, _, e := status.Result(); e == nil && code != 0 {
+			err = fmt.Errorf("execution failed with exit status %d", code)
+		} else {
+			err = e
+		}
+	case <-timer.C:
+		err = fmt.Errorf("execution timed out")
 	}
 
 	return stdOut.Bytes(), stdErr.Bytes(), err
 }
 
-// CtrExec starts the executable in a running container and attaches its logging to memlogd
-func CtrExec2(domainName string, args []string) ([]byte, []byte, error) {
-	ctrdCtx := namespaces.WithNamespace(context.Background(), "services.linuxkit")
-	if err := verifyCtr(); err != nil {
-		return nil, nil, fmt.Errorf("CtrStartContainer: exception while verifying ctrd client: %s", err.Error())
-	}
-	ctr, err := CtrdClient.LoadContainer(ctrdCtx, domainName)
-	if err != nil {
-		return nil, nil, err
-	}
+// CtrExec starts the executable in a running user container
+func CtrExec(domainName string, args []string) ([]byte, []byte, error) {
+	return ctrExec(ctrdCtx, domainName, args)
+}
 
-	spec, err := ctr.Spec(ctrdCtx)
-	if err != nil {
-		return nil, nil, err
-	}
-	task, err := ctr.Task(ctrdCtx, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	pspec := spec.Process
-	pspec.Terminal = true
-	pspec.Args = args
-
-	// plumb the process for I/O
-	var (
-		stdOut bytes.Buffer
-		stdErr bytes.Buffer
-	)
-	cioOpts := []cio.Opt{cio.WithStreams(new(bytes.Buffer), &stdOut, &stdErr), cio.WithFIFODir(fifoDir)}
-	process, err := task.Exec(ctrdCtx, domainName+string(rand.Int()), pspec, cio.NewCreator(cioOpts...))
-	if err != nil {
-		return nil, nil, err
-	}
-	defer process.Delete(ctrdCtx)
-
-	// prepare an exit code channel
-	statusC, err := process.Wait(ctrdCtx)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// finally - run it (asynchronously)
-	if err := process.Start(ctrdCtx); err != nil {
-		return nil, nil, err
-	}
-
-	// block until the process exits
-	// XXX: this maybe a good place to have a timer as well
-	status := <-statusC
-	code, _, err := status.Result()
-	if err == nil && code != 0 {
-		err = fmt.Errorf("execution failed with exit status %d", code)
-	}
-
-	return stdOut.Bytes(), stdErr.Bytes(), err
+// CtrSystemExec starts the executable in a running system (EVE's) container
+func CtrSystemExec(domainName string, args []string) ([]byte, []byte, error) {
+	return ctrExec(ctrdSystemCtx, domainName, args)
 }
 
 // CtrStopContainer stops (kills) the main task in the container
