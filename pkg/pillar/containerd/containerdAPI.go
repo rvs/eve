@@ -346,8 +346,8 @@ func CtrContainerInfo(name string) (int, string, error) {
 	return 0, "", err
 }
 
-// CtrStartContainer starts the default task in a pre-existing container and attaches its logging to memlogd
-func CtrStartContainer(domainName string) (int, error) {
+// CtrCreateTask starts the default task in a pre-existing container and attaches its logging to memlogd
+func CtrCreateTask(domainName string) (int, error) {
 	if err := verifyCtr(); err != nil {
 		return 0, fmt.Errorf("CtrStartContainer: exception while verifying ctrd client: %s", err.Error())
 	}
@@ -375,15 +375,33 @@ func CtrStartContainer(domainName string) (int, error) {
 		return 0, err
 	}
 
+	return int(task.Pid()), nil
+}
+
+// CtrCreateTask starts the default task in a pre-existing container and attaches its logging to memlogd
+func CtrStartTask(domainName string) error {
+	if err := verifyCtr(); err != nil {
+		return fmt.Errorf("CtrStartContainer: exception while verifying ctrd client: %s", err.Error())
+	}
+	ctr, err := CtrLoadContainer(domainName)
+	if err != nil {
+		return err
+	}
+
+	task, err := ctr.Task(ctrdCtx, nil)
+	if err != nil {
+		return err
+	}
+
 	if err := prepareProcess(int(task.Pid()), nil); err != nil {
-		return 0, err
+		return err
 	}
 
 	if err := task.Start(ctrdCtx); err != nil {
-		return 0, err
+		return err
 	}
 
-	return int(task.Pid()), nil
+	return nil
 }
 
 // CtrExec starts the executable in a running container and attaches its logging to memlogd
