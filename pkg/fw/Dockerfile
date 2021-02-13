@@ -10,6 +10,7 @@ RUN apk add --no-cache \
     linux-firmware-rtlwifi \
     linux-firmware-rsi \
     linux-firmware-nvidia \
+    linux-firmware-tigon \
     linux-firmware-other
 
 FROM scratch
@@ -24,6 +25,8 @@ COPY --from=build /lib/firmware/iwlwifi-3168* /lib/firmware/
 COPY --from=build /lib/firmware/iwlwifi-8265* /lib/firmware/
 COPY --from=build /lib/firmware/iwlwifi-7260* /lib/firmware/
 COPY --from=build /lib/firmware/iwlwifi-9260* /lib/firmware/
+# Broadcom Tigon3 ethernet
+COPY --from=build /lib/firmware/tigon/* /lib/firmware/tigon/
 # NVidia Jetson
 COPY --from=build /lib/firmware/nvidia/tegra210 /lib/firmware/nvidia/tegra210
 # Dell Edge Gateway 300x firmware
