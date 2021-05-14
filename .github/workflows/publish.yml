@@ -9,7 +9,6 @@ on:
 
 jobs:
   build:
-    if: github.event.repository.full_name == 'lf-edge/eve'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -43,10 +42,6 @@ jobs:
           fi
           echo "ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')" >> "$GITHUB_ENV"
           echo "TAG=$(echo "$REF" | sed -e 's#^.*/##' -e 's#master#snapshot#' -e 's#main#snapshot#')" >> "$GITHUB_ENV"
-      - name: Login to DockerHUB
-        run: |
-          echo "${{ secrets.RELEASE_DOCKERHUB_TOKEN }}" |\
-             docker login -u "${{ secrets.RELEASE_DOCKERHUB_ACCOUNT }}" --password-stdin
       - name: Build packages
         run: |
           # GH Actions convert our annotated tags into plain ones,
@@ -61,7 +56,7 @@ jobs:
           # sadly, our build sometimes times out on network access
           # and running out of disk space: re-trying for 3 times
           for i in 1 2 3; do
-             if make -e V=1 LINUXKIT_PKG_TARGET=push pkgs; then
+             if (make -e V=1 pkgs || :); then
                 break
              else
                 # the most likely reason for 'make pkgs' to fail is
