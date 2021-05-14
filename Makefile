@@ -446,6 +446,7 @@ $(INSTALLER):
 
 
 # convenience targets - so you can do `make config` instead of `make dist/config.img`, and `make installer` instead of `make dist/amd64/installer.img
+linuxkit: $(LINUXKIT)
 build-vm: $(BUILD_VM)
 initrd: $(INITRD_IMG)
 installer-img: $(INSTALLER_IMG)
