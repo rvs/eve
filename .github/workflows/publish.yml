@@ -34,7 +34,7 @@ jobs:
              make LINUXKIT_VERSION=master LINUXKIT_SOURCE=https://github.com/rvs/linuxkit.git linuxkit
              # constraining environment for riscv64 builds
              EVE_BUILDER_IMAGE=$(./build-tools/bin/linuxkit pkg show-tag pkg/alpine)-riscv64
-             echo "PKGS=pkg/alpine pkg/ipxe pkg/mkconf pkg/mkimage-iso-efi pkg/mkimage-raw-efi pkg/uefi" >> "$GITHUB_ENV"
+             echo "PKGS=pkg/alpine pkg/ipxe pkg/mkconf pkg/mkimage-iso-efi pkg/mkimage-raw-efi pkg/uefi pkg/u-boot" >> "$GITHUB_ENV"
              echo "ZARCH=riscv64" >> "$GITHUB_ENV"
              echo 'LK_BUILD_ARGS={"EVE_BUILDER_IMAGE": "'$EVE_BUILDER_IMAGE'"}' >> "$GITHUB_ENV"
              echo "EVE_ARTIFACTS=images/docker-compose.yml" >> "$GITHUB_ENV"
