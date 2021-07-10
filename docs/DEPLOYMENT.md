@@ -168,14 +168,14 @@ EVE-OS onto the controller.
  
 ### Deploying EVE-OS on SBCs (including older Raspbery Pi models) and running live
 
-A lot of SBCs (including older models of Raspberry Pi) don't have any kind
+A lot of single-board computers (SBCs), including older models of Raspberry Pi, don't have any kind
 of built-in storage devices. They rely on microSD cards that can be put in
-as the only storage mechanism. In those cases there's no point in running
-EVE-OS installer image on the device itself. Since the microSD card has to
-be prepared outside -- you might as well put a live EVE-OS image on it and
-skip the entire installer image step (remember that the only reason we
-have to run installer image to begin with is because on most edge nodes
-you can't just pop the hard drive out).
+as the only storage mechanism. In those cases there's little advantage to running the
+EVE-OS installer image since you can write the live image directly to the microSD card. That is, since the microSD card has to
+be prepared outside the SBC, putting a live EVE-OS image on it allows you to
+skip the entire installer image step. (Remember that the only reason we
+have to run an installer image to begin with is because on most edge nodes
+you can't just pop the hard drive out to write to it).
 
 The good news, of course, is that there's no real difference between a live
 EVE-OS image and installer EVE-OS image. Just as for the installer image you will:
