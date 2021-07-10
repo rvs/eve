@@ -1,51 +1,54 @@
 # Deploying EVE-OS
 
-Deploying EVE-OS is similar to deploying any regular operating system. This can happen
-in either physical (EVE-OS runs on bare metal) or virtual (EVE-OS runs inside of a
-virtual machine) environments. When running in a virtual environment, EVE-OS needs to
+Deploying EVE-OS is similar to deploying any regular operating system. It can be installed directly 
+on physical hardware (i.e., EVE-OS can run on bare metal) or it can be deployed within a virtual environment (i.e., EVE-OS can run inside of a
+virtual machine). When running in a virtual environment, EVE-OS needs to
 have access to [nested virtualization](https://en.wikipedia.org/wiki/Virtualization#Nested_virtualization).
 While it is possible to run EVE-OS in a virtual environment without nested virtualization
-enabled a lot of capabilities (e.g. running accelerated VMs) will be degraded.
+enabled, unfortunately a lot of capabilities will be degraded (e.g., its ability to run accelerated VMs).
 
-## Live vs installer EVE-OS images
+## Deployment methods: live vs installer images of EVE-OS
 
 Since EVE-OS follows a very traditional boot process, its *live* image has to be
-available on a storage device that is accessible by the BIOS. When it is already
-deployed EVE-OS provides capabilities for managing its own live image. However,
-in order to bootstrap EVE-OS the initial live image has to be written to the
-storage device somehow.
+available on an accessible storage device so that it can be launched by the BIOS (or other bootloader). After being
+deployed, EVE-OS includes capabilities for managing and updating its own live image. But the initial installation
+often requires some sort of bootstrapped approach to write the live image of EVE-OS to the edge node's
+storage device.
 
-In a lot of situations, the storage device can be written to separately and then
-attached back to the edge node. This applies to both physical (e.g.  taking a live
-EVE-OS image, writing it onto a USB stick and booting off of that USB stick) and
-virtual (taking a live EVE-OS image and instructing your virtualization platform
-to use it as a hard drive) environments. However, there are times when this is
-either impossible (e.g. the only storage device is an eMMC soldered to the edge
-node's board) or impractical (the USB controller is so slow that booting off of
-the external USB stick take a long time). In cases like these we need an initial
-"installation" process. All that process does is it writes EVE-OS live image
-onto the storage device that can only be accessed by code running on the edge
-node itself. This is called an *installer* image of EVE-OS. It is a separate
-binary that you can get from the EVE-OS distribution.
+In some cases, EVE-OS can be written directly to a storage device and then that storage device can be 
+attached to the edge node. This applies to both physical and virtual environments. 
+For example, a live EVE-OS image can be written to a USB stick and then the edge node can boot off of that USB stick.
+In a virtual environment, the virtualization platform can be instructed to 
+take a live EVE-OS image and use it as a hard drive. When these approaches are 
+impossible or impractical, we can use an "installation process" instead. It is in 
+these latter cases where the installer image works well. One example need for the installer 
+approach is when an edge node's only storage device is an eMMC module soldered directly to the edge
+node's processor board. Another example is when the USB controller is so slow that booting and/or running off of
+an external USB stick will simply take too much time. In these cases an installer image can be run on
+the edge node itself, since the node has access to write the EVE-OS live image
+onto its integrated storage device. This two-step process is why it 
+is called an EVE-OS *installer* image and why releases of the EVE-OS distribution include two separate
+binaries -- one called "live" and one called "installer".
 
-There's nothing special about the *installer* image of EVE-OS. In fact, under the
-hood, it is simply a live image of EVE-OS that runs a single application: a tiny
-script that writes a live image (and since installer image is a live image it
-effectively writes itself) onto the storage device that is inaccessible from
-the outside of the edge-node. The right way to think about installer image is
-that it is a live image that is only ever booted once on a given edge-node. Once
-installer image is done and shuts the edge node down the live image is available
-on the storage device and there's no need to run installer image anymore.
+There's nothing particularly special about the *installer* image of EVE-OS. In fact, under the
+hood, it is simply a live image of EVE-OS that first runs a single application: a tiny script 
+that writes a live image onto an integrated storage device; one that is otherwise inaccessible outside the edge node. 
+The installer image is essentially a live image that writes itself, using this extra script.
+Hence, the installer image is only booted once on a given edge node. After the 
+installer's image-writing portion of the script is complete, it shuts down the edge node. 
+Thereafter, the live image is available on the storage device so there's no need to run the installer anymore.
 
-In general, EVE-OS assumes a hands-free environment and can't rely on a human
-operator to configure initial settings "at the console". Given that the installer
-image is nothing but EVE-OS, it too, needs to be told ahead of time about any
-configuration necessary. To find out more how EVE-OS gets configured follow
-[configuration](CONFIG.md) documentation. For the rest of this document we will
-assume either config partition having required configuration or dynamic configuration
-done by supplying overrides to the boot process of the installer image. 
+In general, once deployed, EVE-OS assumes a hands-free environment that does not rely on a human
+operator. No one is required to configure initial settings "at the console". Any 
+ncessary configuration can be included as part of the EVE-OS image. 
+To find out more regarding how EVE-OS can be configured, check out the 
+[configuration](CONFIG.md) documentation. The remainder of this document will
+assume that either the config partition of the EVE-OS image has the required configuration information, 
+or that dynamic configuration will be done by supplying overrides during the boot process of the installer image. 
+Once it is deployed, the assumption is that all application management and monitoring of 
+EVE-OS will occur via API calls between the edge node and a remote application called an EVE controller.
 
-## Serial vs. soft serial numbers
+## Unique identification: serial vs. soft serial numbers
 
 EVE controller has to be able to recognize EVE for the first time. This is done
 by relying on a piece of semi-unique information called a ```serial number```.
